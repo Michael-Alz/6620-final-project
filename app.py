@@ -1,9 +1,11 @@
-"""aa"""
+"""Order Management System Backend"""
 
 import uuid
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app, origins=[ 'http://localhost:5174'])  # Enable CORS for frontend ports
 
 # --- In-Memory Database ---
 # We'll use a simple Python dictionary to act as our database for now.
@@ -47,6 +49,17 @@ def get_order(order_id):
     if not order:
         return jsonify({"error": "Order not found"}), 404
     return jsonify(order)
+
+
+@app.route("/orders", methods=["GET"])
+def get_all_orders():
+    """
+    Retrieves all orders stored in memory.
+    """
+    return jsonify({
+        "total_orders": len(orders),
+        "orders": list(orders.values())
+    })
 
 
 if __name__ == "__main__":
