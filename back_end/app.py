@@ -5,7 +5,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
-CORS(app, origins=[ 'http://localhost:5174'])  # Enable CORS for frontend ports
+CORS(app, origins=['http://localhost:5173'])  # Enable CORS for frontend ports
 
 # --- In-Memory Database ---
 # We'll use a simple Python dictionary to act as our database for now.
