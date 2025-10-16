@@ -28,6 +28,7 @@ export const OrderDisplay: React.FC = () => {
   const [orderId, setOrderId] = useState('');
   const [order, setOrder] = useState<Order | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const handleFetchOrder = async (e: React.FormEvent) => {
@@ -54,6 +55,28 @@ export const OrderDisplay: React.FC = () => {
     setOrder(null);
     setOrderId('');
     setError(null);
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!order) return;
+    
+    if (!window.confirm(`Are you sure you want to delete order ${order.order_id}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setError(null);
+    setIsDeleting(true);
+
+    try {
+      await ApiService.deleteOrder(order.order_id);
+      setOrder(null);
+      setOrderId('');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while deleting the order');
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -110,13 +133,24 @@ export const OrderDisplay: React.FC = () => {
             </ul>
           </div>
 
-          <button onClick={clearOrder} style={{ 
-            background: '#6c757d',
-            marginTop: '15px',
-            width: '100%'
-          }}>
-            🗑️ Clear Results
-          </button>
+          <div style={{ display: 'flex', gap: '10px', marginTop: '15px' }}>
+            <button onClick={clearOrder} style={{ 
+              background: '#6c757d',
+              flex: 1
+            }}>
+              🗑️ Clear Results
+            </button>
+            <button 
+              onClick={handleDeleteOrder}
+              disabled={isDeleting}
+              style={{ 
+                background: '#dc3545',
+                flex: 1
+              }}
+            >
+              {isDeleting ? '🔄 Deleting...' : '🗑️ Delete Order'}
+            </button>
+          </div>
         </div>
       )}
     </div>

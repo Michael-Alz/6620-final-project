@@ -31,6 +31,7 @@ export const AllOrdersDisplay: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [customerFilter, setCustomerFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
+  const [deletingOrders, setDeletingOrders] = useState<Set<string>>(new Set());
 
   const handleFetchAllOrders = async () => {
     setError(null);
@@ -55,6 +56,31 @@ export const AllOrdersDisplay: React.FC = () => {
     setError(null);
     setCustomerFilter('');
     setStatusFilter('');
+    setDeletingOrders(new Set());
+  };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!window.confirm(`Are you sure you want to delete order ${orderId}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingOrders(prev => new Set(prev).add(orderId));
+    setError(null);
+
+    try {
+      await ApiService.deleteOrder(orderId);
+      // Remove the deleted order from the local state
+      setOrders(prevOrders => prevOrders.filter(order => order.order_id !== orderId));
+      setTotalOrders(prev => prev - 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while deleting the order');
+    } finally {
+      setDeletingOrders(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(orderId);
+        return newSet;
+      });
+    }
   };
 
   const filteredOrders = useMemo(() => {
@@ -162,6 +188,19 @@ export const AllOrdersDisplay: React.FC = () => {
                       </li>
                     ))}
                   </ul>
+                </div>
+
+                <div style={{ marginTop: '15px' }}>
+                  <button 
+                    onClick={() => handleDeleteOrder(order.order_id)}
+                    disabled={deletingOrders.has(order.order_id)}
+                    style={{ 
+                      background: '#dc3545',
+                      width: '100%'
+                    }}
+                  >
+                    {deletingOrders.has(order.order_id) ? '🔄 Deleting...' : '🗑️ Delete Order'}
+                  </button>
                 </div>
               </div>
             ))}
