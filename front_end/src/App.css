@@ -59,6 +59,12 @@ body {
   border-right: none;
 }
 
+.app-section-update {
+  padding: 40px 30px;
+  border-top: 1px solid #e1e5e9;
+  background: #f8f9fa;
+}
+
 .app-section-full {
   padding: 40px 30px;
   border-top: 1px solid #e1e5e9;
@@ -250,6 +256,26 @@ button[type="button"]:hover {
   border: 1px solid #e9ecef;
 }
 
+.filters-section {
+  background: white;
+  padding: 20px;
+  border-radius: 8px;
+  margin-bottom: 20px;
+  border: 1px solid #e9ecef;
+}
+
+.filters-section h3 {
+  margin-top: 0;
+  color: #333;
+  margin-bottom: 15px;
+}
+
+.filter-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+
 .orders-summary {
   background: white;
   padding: 20px;
@@ -380,6 +406,11 @@ button[type="button"]:hover {
   
   .item-row input[type="number"] {
     width: 100%;
+  }
+  
+  .filter-row {
+    grid-template-columns: 1fr;
+    gap: 15px;
   }
 }
 

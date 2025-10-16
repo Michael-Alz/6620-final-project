@@ -2,6 +2,28 @@ import React, { useState } from 'react';
 import type { Order } from '../types';
 import { ApiService } from '../api';
 
+const getStatusColor = (status: string): string => {
+  switch (status.toLowerCase()) {
+    case 'received': return '#28a745';
+    case 'preparing': return '#ffc107';
+    case 'ready': return '#17a2b8';
+    case 'completed': return '#6f42c1';
+    case 'cancelled': return '#dc3545';
+    default: return '#6c757d';
+  }
+};
+
+const getStatusBackground = (status: string): string => {
+  switch (status.toLowerCase()) {
+    case 'received': return '#d4edda';
+    case 'preparing': return '#fff3cd';
+    case 'ready': return '#d1ecf1';
+    case 'completed': return '#e2e3f1';
+    case 'cancelled': return '#f8d7da';
+    default: return '#f8f9fa';
+  }
+};
+
 export const OrderDisplay: React.FC = () => {
   const [orderId, setOrderId] = useState('');
   const [order, setOrder] = useState<Order | null>(null);
@@ -63,10 +85,18 @@ export const OrderDisplay: React.FC = () => {
           <div className="order-info">
             <p><strong>Order ID:</strong> {order.order_id}</p>
             <p><strong>Customer:</strong> {order.customer_name}</p>
-            <p><strong>Status:</strong> <span style={{ 
-              color: order.status === 'received' ? '#28a745' : '#6c757d',
-              fontWeight: 'bold'
-            }}>{order.status.toUpperCase()}</span></p>
+            <p><strong>Status:</strong> 
+              <span style={{ 
+                color: getStatusColor(order.status),
+                fontWeight: 'bold',
+                padding: '4px 8px',
+                borderRadius: '4px',
+                backgroundColor: getStatusBackground(order.status),
+                marginLeft: '8px'
+              }}>
+                {order.status.toUpperCase()}
+              </span>
+            </p>
           </div>
           
           <div className="order-items">
