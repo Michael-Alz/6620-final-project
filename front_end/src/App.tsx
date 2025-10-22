@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { OrderForm } from './components/OrderForm';
 import { OrderDisplay } from './components/OrderDisplay';
+import { UpdateOrderStatus } from './components/UpdateOrderStatus';
 import { AllOrdersDisplay } from './components/AllOrdersDisplay';
 import './App.css';
 
@@ -34,6 +35,10 @@ function App() {
           </div>
         )}
       </main>
+
+      <div className="app-section-update">
+        <UpdateOrderStatus />
+      </div>
 
       <div className="app-section-full">
         <AllOrdersDisplay />

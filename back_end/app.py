@@ -29,11 +29,11 @@ db_host = os.environ.get("DB_HOST")
 db_name = os.environ.get("DB_NAME")
 
 # DB test in local
-# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 
-app.config["SQLALCHEMY_DATABASE_URI"] = (
-    f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
-)
+# app.config["SQLALCHEMY_DATABASE_URI"] = (
+#     f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
+# )
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
@@ -212,6 +212,28 @@ def update_order_status(order_id: str):
     db.session.commit()
 
     return jsonify(order.to_dict())
+
+
+@app.route("/orders/<string:order_id>", methods=["DELETE"])
+def delete_order(order_id: str):
+    """
+    Deletes an order by its UUID, along with all associated items.
+
+    Args:
+        order_id (str): The unique identifier for the order.
+
+    Returns:
+        JSON: A message confirming deletion or an error if not found.
+        HTTP Status Code: 200 on success, 404 if not found.
+    """
+    order = Order.query.get(order_id)
+    if not order:
+        return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
+
+    db.session.delete(order)
+    db.session.commit()
+
+    return jsonify({"message": f"Order '{order_id}' has been deleted."}), 200
 
 
 # --- Main Execution ---

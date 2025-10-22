@@ -41,4 +41,34 @@ export class ApiService {
 
     return response.json();
   }
+
+  static async updateOrderStatus(orderId: string, status: string): Promise<Order> {
+    const response = await fetch(`${API_BASE_URL}/orders/${orderId}/status`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ status }),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to update order status');
+    }
+
+    return response.json();
+  }
+
+  static async deleteOrder(orderId: string): Promise<{message: string}> {
+    const response = await fetch(`${API_BASE_URL}/orders/${orderId}`, {
+      method: 'DELETE',
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to delete order');
+    }
+
+    return response.json();
+  }
 }

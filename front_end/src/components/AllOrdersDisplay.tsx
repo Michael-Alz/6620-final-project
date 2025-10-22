@@ -1,12 +1,37 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { Order } from '../types';
 import { ApiService } from '../api';
+
+const getStatusColor = (status: string): string => {
+  switch (status.toLowerCase()) {
+    case 'received': return '#28a745';
+    case 'preparing': return '#ffc107';
+    case 'ready': return '#17a2b8';
+    case 'completed': return '#6f42c1';
+    case 'cancelled': return '#dc3545';
+    default: return '#6c757d';
+  }
+};
+
+const getStatusBackground = (status: string): string => {
+  switch (status.toLowerCase()) {
+    case 'received': return '#d4edda';
+    case 'preparing': return '#fff3cd';
+    case 'ready': return '#d1ecf1';
+    case 'completed': return '#e2e3f1';
+    case 'cancelled': return '#f8d7da';
+    default: return '#f8f9fa';
+  }
+};
 
 export const AllOrdersDisplay: React.FC = () => {
   const [orders, setOrders] = useState<Order[]>([]);
   const [totalOrders, setTotalOrders] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [customerFilter, setCustomerFilter] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [deletingOrders, setDeletingOrders] = useState<Set<string>>(new Set());
 
   const handleFetchAllOrders = async () => {
     setError(null);
@@ -29,7 +54,44 @@ export const AllOrdersDisplay: React.FC = () => {
     setOrders([]);
     setTotalOrders(0);
     setError(null);
+    setCustomerFilter('');
+    setStatusFilter('');
+    setDeletingOrders(new Set());
   };
+
+  const handleDeleteOrder = async (orderId: string) => {
+    if (!window.confirm(`Are you sure you want to delete order ${orderId}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setDeletingOrders(prev => new Set(prev).add(orderId));
+    setError(null);
+
+    try {
+      await ApiService.deleteOrder(orderId);
+      // Remove the deleted order from the local state
+      setOrders(prevOrders => prevOrders.filter(order => order.order_id !== orderId));
+      setTotalOrders(prev => prev - 1);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred while deleting the order');
+    } finally {
+      setDeletingOrders(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(orderId);
+        return newSet;
+      });
+    }
+  };
+
+  const filteredOrders = useMemo(() => {
+    return orders.filter(order => {
+      const matchesCustomer = !customerFilter || 
+        order.customer_name.toLowerCase().includes(customerFilter.toLowerCase());
+      const matchesStatus = !statusFilter || 
+        order.status.toLowerCase() === statusFilter.toLowerCase();
+      return matchesCustomer && matchesStatus;
+    });
+  }, [orders, customerFilter, statusFilter]);
 
   return (
     <div className="all-orders-display">
@@ -50,11 +112,51 @@ export const AllOrdersDisplay: React.FC = () => {
           <div className="orders-summary">
             <h3>📈 Summary</h3>
             <p><strong>Total Orders:</strong> {totalOrders}</p>
+            <p><strong>Filtered Results:</strong> {filteredOrders.length}</p>
+          </div>
+
+          <div className="filters-section">
+            <h3>🔍 Filters</h3>
+            <div className="filter-row">
+              <div className="form-group">
+                <label htmlFor="customerFilter">Customer Name:</label>
+                <input
+                  id="customerFilter"
+                  type="text"
+                  value={customerFilter}
+                  onChange={(e) => setCustomerFilter(e.target.value)}
+                  placeholder="Filter by customer name"
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="statusFilter">Status:</label>
+                <select
+                  id="statusFilter"
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  style={{
+                    width: '100%',
+                    padding: '12px 15px',
+                    border: '2px solid #e1e5e9',
+                    borderRadius: '8px',
+                    fontSize: '1rem',
+                    background: '#fafbfc'
+                  }}
+                >
+                  <option value="">All Statuses</option>
+                  <option value="received">Received</option>
+                  <option value="preparing">Preparing</option>
+                  <option value="ready">Ready</option>
+                  <option value="completed">Completed</option>
+                  <option value="cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
           </div>
 
           <div className="orders-list">
             <h3>🛒 Orders List</h3>
-            {orders.map((order, index) => (
+            {filteredOrders.map((order, index) => (
               <div key={order.order_id} className="order-card">
                 <div className="order-header">
                   <h4>Order #{index + 1}</h4>
@@ -65,9 +167,12 @@ export const AllOrdersDisplay: React.FC = () => {
                   <p><strong>Customer:</strong> {order.customer_name}</p>
                   <p><strong>Status:</strong> 
                     <span style={{ 
-                      color: order.status === 'received' ? '#28a745' : '#6c757d',
+                      color: getStatusColor(order.status),
                       fontWeight: 'bold',
-                      marginLeft: '5px'
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      backgroundColor: getStatusBackground(order.status),
+                      marginLeft: '8px'
                     }}>
                       {order.status.toUpperCase()}
                     </span>
@@ -83,6 +188,19 @@ export const AllOrdersDisplay: React.FC = () => {
                       </li>
                     ))}
                   </ul>
+                </div>
+
+                <div style={{ marginTop: '15px' }}>
+                  <button 
+                    onClick={() => handleDeleteOrder(order.order_id)}
+                    disabled={deletingOrders.has(order.order_id)}
+                    style={{ 
+                      background: '#dc3545',
+                      width: '100%'
+                    }}
+                  >
+                    {deletingOrders.has(order.order_id) ? '🔄 Deleting...' : '🗑️ Delete Order'}
+                  </button>
                 </div>
               </div>
             ))}
