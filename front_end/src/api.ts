@@ -1,6 +1,6 @@
 import type { Order, CreateOrderRequest } from './types';
 
-const API_BASE_URL = 'http://3.129.207.215:8080';
+const API_BASE_URL = 'http://localhost:8080';
 
 export class ApiService {
 	static async createOrder(orderData: CreateOrderRequest): Promise<Order> {

@@ -1,3 +1,51 @@
+# macOS
+.DS_Store
+
+# Editors/IDE
+.vscode/
+.idea/
+*.swp
+.cursorignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+build/
+dist/
+.cache/
+.pytest_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+.env.*
+
+# Flask/SQLAlchemy/SQLite
+instance/
+*.db
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Node (frontend)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
 .venv
 back_end/instance/
 .envrc

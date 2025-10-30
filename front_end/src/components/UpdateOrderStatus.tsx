@@ -1,5 +1,4 @@
 import React, { useState } from 'react';
-import type { Order } from '../types';
 import { ApiService } from '../api';
 
 export const UpdateOrderStatus: React.FC = () => {
