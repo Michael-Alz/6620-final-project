@@ -1,5 +1,7 @@
 import random
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 
 from locust import HttpUser, between, task
@@ -7,6 +9,13 @@ from locust import HttpUser, between, task
 
 ORDER_IDS: list[str] = []
 DB_PATH = Path(__file__).resolve().parent.parent / "instance" / "database.db"
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+# Commands to reset the database and seed data.
+SCRIPT_COMMANDS = [
+    ("clear_db.py", [sys.executable, str(SCRIPTS_DIR / "clear_db.py")]),
+    ("reset_redis.py", [sys.executable, str(SCRIPTS_DIR / "reset_redis.py")]),
+    ("seed_orders.py", [sys.executable, str(SCRIPTS_DIR / "seed_orders.py")]),
+]
 
 
 def load_order_ids_from_db() -> None:
@@ -31,7 +40,21 @@ def load_order_ids_from_db() -> None:
     print(f"✅ Loaded {len(ORDER_IDS)} order IDs from database.")
 
 
-# Run preload once when locustfile is imported.
+# Clean database and seed data before running locust.
+def prepare_test_data() -> None:
+    """Ensure Redis and the database are prepped before Locust starts."""
+    for script_name, command in SCRIPT_COMMANDS:
+        print(f"▶️ Running {script_name} ...")
+        try:
+            subprocess.run(command, check=True)
+        except subprocess.CalledProcessError as exc:
+            print(f"❌ Failed to run {script_name}: {exc}")
+            raise
+    print("✅ Test data ready.")
+
+
+# Run preparation and preload once when locustfile is imported.
+prepare_test_data()
 load_order_ids_from_db()
 
 
