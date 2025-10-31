@@ -1,9 +1,38 @@
 import random
-import uuid
+import sqlite3
+from pathlib import Path
 
 from locust import HttpUser, between, task
 
+
 ORDER_IDS: list[str] = []
+DB_PATH = Path(__file__).resolve().parent.parent / "instance" / "database.db"
+
+
+def load_order_ids_from_db() -> None:
+    """Preload order IDs from the SQLite database before the test starts."""
+    global ORDER_IDS
+
+    if not DB_PATH.exists():
+        print(f"⚠️ Database not found at {DB_PATH}; skipping preload.")
+        ORDER_IDS = []
+        return
+
+    try:
+        with sqlite3.connect(DB_PATH) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT id FROM orders;")
+            ORDER_IDS = [row[0] for row in cursor.fetchall()]
+    except sqlite3.Error as exc:
+        print(f"⚠️ Could not load order IDs from database: {exc}")
+        ORDER_IDS = []
+        return
+
+    print(f"✅ Loaded {len(ORDER_IDS)} order IDs from database.")
+
+
+# Run preload once when locustfile is imported.
+load_order_ids_from_db()
 
 
 class ReaderUser(HttpUser):
@@ -19,15 +48,9 @@ class ReaderUser(HttpUser):
                 return
 
             try:
-                data = response.json()
+                response.json()
             except ValueError:
                 response.failure("Invalid JSON")
-                return
-
-            for order in data.get("orders", []):
-                order_id = order.get("order_id")
-                if order_id:
-                    ORDER_IDS.append(order_id)
 
     @task(1)
     def order_detail(self) -> None:
