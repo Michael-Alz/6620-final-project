@@ -1,4 +1,5 @@
 .venv
 back_end/instance/
 .envrc
+__pycache__
 front_end/.env

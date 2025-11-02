@@ -28,12 +28,13 @@ db_pass = os.environ.get("DB_PASS")
 db_host = os.environ.get("DB_HOST")
 db_name = os.environ.get("DB_NAME")
 
-# DB test in local
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config["SQLALCHEMY_DATABASE_URI"] = (
+    f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
+)
 
-# app.config["SQLALCHEMY_DATABASE_URI"] = (
-#     f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
-# )
+# DB test in local
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
