@@ -10,19 +10,23 @@ The data model uses a normalized schema with two main tables:
 - `order_items`: Stores the individual items that belong to each order.
 """
 
-import uuid
 import os
-from typing import Dict, Any
+import random
+import uuid
+from typing import Any, Dict, Optional
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 from flask_sqlalchemy import SQLAlchemy
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import relationship
+from dotenv import load_dotenv
 
 app = Flask(__name__)
 CORS(app, origins="*")
 
 # --- Database Configuration for AWS RDS ---
+load_dotenv()
 db_user = os.environ.get("DB_USER")
 db_pass = os.environ.get("DB_PASS")
 db_host = os.environ.get("DB_HOST")
@@ -38,6 +42,56 @@ app.config["SQLALCHEMY_DATABASE_URI"] = (
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
 db = SQLAlchemy(app)
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
+
+_SEED_CUSTOMER_NAMES = [
+    "Alice Johnson",
+    "Ben Carter",
+    "Chloe Ramirez",
+    "Darius Lee",
+    "Emma Patel",
+    "Felix Wright",
+    "Grace Kim",
+    "Hector Gomez",
+    "Isla Chen",
+    "Javier Torres",
+]
+
+_SEED_ITEM_NAMES = [
+    "Wireless Mouse",
+    "Mechanical Keyboard",
+    "USB-C Hub",
+    "Laptop Stand",
+    "Noise Cancelling Headphones",
+    "Ergonomic Chair",
+    "4K Monitor",
+    "Portable SSD",
+    "Webcam",
+    "Desk Lamp",
+]
+
+_SEED_STATUSES = ["received", "processing", "shipped", "delivered", "cancelled"]
+
+
+def _require_admin_auth(body: Optional[Dict[str, Any]] = None):
+    """
+    Validates a simple admin password shared via header or request body.
+
+    The password is expected to be provided in the `X-Admin-Password` header
+    or a `password` field in the request body. Returns an error response when
+    authentication fails, otherwise None.
+    """
+    if not ADMIN_PASSWORD:
+        return jsonify({"error": "Admin password is not configured on the server."}), 500
+
+    provided_password = request.headers.get("X-Admin-Password")
+    if provided_password is None and isinstance(body, dict):
+        provided_password = body.get("password")
+
+    if provided_password != ADMIN_PASSWORD:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    return None
 
 
 # --- Database Models ---
@@ -235,6 +289,84 @@ def delete_order(order_id: str):
     db.session.commit()
 
     return jsonify({"message": f"Order '{order_id}' has been deleted."}), 200
+
+
+@app.route("/admin/reset", methods=["POST"])
+def reset_database():
+    """
+    Removes all orders and associated items from the database.
+
+    Requires the admin password to be provided in the `X-Admin-Password`
+    header or request body. Intended for development/demo environments.
+    """
+    body = request.get_json(silent=True)
+    auth_error = _require_admin_auth(body if isinstance(body, dict) else None)
+    if auth_error:
+        return auth_error
+
+    try:
+        OrderItem.query.delete()
+        Order.query.delete()
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Failed to reset database."}), 500
+
+    return jsonify({"message": "All orders have been removed."}), 200
+
+
+@app.route("/admin/seed", methods=["POST"])
+def seed_database():
+    """
+    Populates the database with a number of fake orders.
+
+    Expects a JSON body with a `count` field (e.g. { "count": 100 })
+    and a valid admin password. Creates orders with realistic item data.
+    """
+    body = request.get_json(silent=True)
+    parsed_body = body if isinstance(body, dict) else None
+
+    auth_error = _require_admin_auth(parsed_body)
+    if auth_error:
+        return auth_error
+
+    if isinstance(body, dict):
+        count_value = body.get("count")
+    elif isinstance(body, int):
+        count_value = body
+    else:
+        count_value = None
+
+    try:
+        count = int(count_value)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Request body must include an integer 'count' value."}), 400
+
+    if count <= 0:
+        return jsonify({"error": "'count' must be greater than zero."}), 400
+
+    try:
+        for _ in range(count):
+            order = Order(
+                customer_name=random.choice(_SEED_CUSTOMER_NAMES),
+                status=random.choice(_SEED_STATUSES),
+            )
+            item_total = random.randint(1, 5)
+            for _ in range(item_total):
+                order.items.append(
+                    OrderItem(
+                        item_name=random.choice(_SEED_ITEM_NAMES),
+                        quantity=random.randint(1, 5),
+                    )
+                )
+            db.session.add(order)
+
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Failed to seed database."}), 500
+
+    return jsonify({"message": f"Seeded {count} fake orders."}), 201
 
 
 # --- Main Execution ---
