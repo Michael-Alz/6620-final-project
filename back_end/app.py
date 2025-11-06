@@ -12,6 +12,7 @@ The data model uses a normalized schema with two main tables:
 
 import os
 import random
+import time
 import uuid
 from typing import Any, Dict, Optional
 
@@ -190,6 +191,7 @@ def create_order():
         return jsonify({"error": str(e)}), 400
 
     db.session.add(new_order)
+    time.sleep(0.3)
     db.session.commit()
 
     return jsonify(new_order.to_dict()), 201
@@ -264,6 +266,7 @@ def update_order_status(order_id: str):
         return jsonify({"error": "Missing 'status' in request body."}), 400
 
     order.status = data["status"]
+    time.sleep(0.3)
     db.session.commit()
 
     return jsonify(order.to_dict())
@@ -286,6 +289,7 @@ def delete_order(order_id: str):
         return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
 
     db.session.delete(order)
+    time.sleep(0.3)
     db.session.commit()
 
     return jsonify({"message": f"Order '{order_id}' has been deleted."}), 200
