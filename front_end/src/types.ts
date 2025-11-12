@@ -14,3 +14,7 @@ export interface CreateOrderRequest {
   customer_name: string;
   items: OrderItem[];
 }
+
+export interface AdminActionResponse {
+  message: string;
+}

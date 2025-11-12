@@ -4,3 +4,4 @@ back_end/instance/
 __pycache__
 front_end/.env
 back_end/.env
+.DS_Store

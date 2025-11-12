@@ -3,6 +3,7 @@ import { OrderForm } from './components/OrderForm';
 import { OrderDisplay } from './components/OrderDisplay';
 import { UpdateOrderStatus } from './components/UpdateOrderStatus';
 import { AllOrdersDisplay } from './components/AllOrdersDisplay';
+import { AdminControls } from './components/AdminControls';
 import './App.css';
 
 function App() {
@@ -42,6 +43,10 @@ function App() {
 
       <div className="app-section-full">
         <AllOrdersDisplay />
+      </div>
+
+      <div className="app-section-admin">
+        <AdminControls />
       </div>
 
       <footer className="app-footer">

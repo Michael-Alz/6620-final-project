@@ -30,6 +30,28 @@ All endpoints are prefixed with the server's base URL (e.g., `http://<your-ec2-p
 
 ---
 
+## Admin Utilities
+
+Certain maintenance actions are restricted and require the admin password configured via the `ADMIN_PASSWORD` environment variable on the server. Provide it either in the `X-Admin-Password` request header or as a `password` field in the JSON body.
+
+| Method | Endpoint        | Description |
+| :----- | :-------------- | :---------- |
+| `POST` | `/admin/reset`  | Deletes all orders and associated items. Intended for quickly clearing the database during demos or tests. |
+| `POST` | `/admin/seed`   | Generates fake orders using the built-in seed data. Body must include an integer `count` (e.g., `{ "count": 50 }`) indicating how many orders to create. |
+
+Both endpoints return `401 Unauthorized` if the password is missing or incorrect.
+
+Example request to seed 25 orders:
+
+```bash
+curl -X POST "http://<your-ec2-public-ipv4-address>:8080/admin/seed" \
+  -H "Content-Type: application/json" \
+  -H "X-Admin-Password: <your-admin-password>" \
+  -d '{ "count": 25 }'
+```
+
+---
+
 ## Running on the AWS EC2 Server (Production)
 
 Follow these steps to run the server on the pre-configured EC2 instance.
