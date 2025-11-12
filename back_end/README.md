@@ -88,6 +88,13 @@ Reset Redis cache (flush current DB defined by `REDIS_URL`):
 python scripts/reset_redis.py
 ```
 
+Or via Docker (flush cache and rebuild a clean instance):
+
+```bash
+sudo docker compose down -v redis
+sudo docker compose up -d redis
+```
+
 ## Load Testing
 
 Locust file: `tests/locustfile.py`.
@@ -130,14 +137,15 @@ docker exec -it redis redis-cli -n 0 keys 'orders:detail:*'             # per-or
 Hit/miss statistics:
 
 ```bash
-# Capture stats before
-docker exec -it redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
+# Check overall hit ratio (% of keyspace_hits over hits+misses)
+sudo docker compose exec redis sh -c \
+'redis-cli info stats | awk -F: "/keyspace_hits|keyspace_misses/{gsub(\r,\"\",$2); a[$1]=$2} END{t=a[2]+a[1]; if(t==0) print 0; else printf(\"%.2f%%\n\", a[1]*100/t)}"'
 
-# Call an endpoint multiple times (first miss, subsequent hits)
+# Fetch the raw counters if you prefer manual inspection
+sudo docker compose exec redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
+
+# Trigger a few reads (first miss, subsequent hits)
 for i in {1..5}; do curl -s 'http://localhost:8080/orders' >/dev/null; done
-
-# Capture stats after
-docker exec -it redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
 ```
 
 Live command stream (debugging):
