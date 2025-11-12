@@ -1,5 +1,4 @@
 import random
-import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -8,7 +7,6 @@ from locust import HttpUser, between, task
 
 
 ORDER_IDS: list[str] = []
-DB_PATH = Path(__file__).resolve().parent.parent / "instance" / "database.db"
 SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
 # Commands to reset the database and seed data.
 SCRIPT_COMMANDS = [
@@ -16,28 +14,6 @@ SCRIPT_COMMANDS = [
     ("reset_redis.py", [sys.executable, str(SCRIPTS_DIR / "reset_redis.py")]),
     ("seed_orders.py", [sys.executable, str(SCRIPTS_DIR / "seed_orders.py")]),
 ]
-
-
-def load_order_ids_from_db() -> None:
-    """Preload order IDs from the SQLite database before the test starts."""
-    global ORDER_IDS
-
-    if not DB_PATH.exists():
-        print(f"⚠️ Database not found at {DB_PATH}; skipping preload.")
-        ORDER_IDS = []
-        return
-
-    try:
-        with sqlite3.connect(DB_PATH) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT id FROM orders;")
-            ORDER_IDS = [row[0] for row in cursor.fetchall()]
-    except sqlite3.Error as exc:
-        print(f"⚠️ Could not load order IDs from database: {exc}")
-        ORDER_IDS = []
-        return
-
-    print(f"✅ Loaded {len(ORDER_IDS)} order IDs from database.")
 
 
 # Clean database and seed data before running locust.
@@ -53,9 +29,8 @@ def prepare_test_data() -> None:
     print("✅ Test data ready.")
 
 
-# Run preparation and preload once when locustfile is imported.
+# Run preparation once when locustfile is imported.
 prepare_test_data()
-load_order_ids_from_db()
 
 
 class ReaderUser(HttpUser):
@@ -63,17 +38,23 @@ class ReaderUser(HttpUser):
 
     @task(9)
     def list_orders(self) -> None:
-        with self.client.get(
-            "/orders?limit=50&offset=0", name="GET /orders", catch_response=True
-        ) as response:
+        global ORDER_IDS
+        with self.client.get("/orders", name="GET /orders", catch_response=True) as response:
             if response.status_code != 200:
                 response.failure(f"Unexpected status {response.status_code}")
                 return
 
             try:
-                response.json()
+                data = response.json()
             except ValueError:
                 response.failure("Invalid JSON")
+                return
+
+            ORDER_IDS = [
+                order["order_id"]
+                for order in data.get("orders", [])
+                if isinstance(order, dict) and "order_id" in order
+            ]
 
     @task(1)
     def order_detail(self) -> None:

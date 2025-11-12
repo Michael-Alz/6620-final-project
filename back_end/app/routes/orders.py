@@ -1,4 +1,5 @@
 import random
+import time
 from typing import Any, Dict, Optional
 
 from flask import Blueprint, current_app, jsonify, request
@@ -135,6 +136,7 @@ def create_order():
         return jsonify({"error": str(exc)}), 400
 
     db.session.add(new_order)
+    time.sleep(0.3)
     db.session.commit()
 
     invalidate_orders_cache(new_order.id)
@@ -154,6 +156,7 @@ def update_order_status(order_id: str):
         return jsonify({"error": "Request must include 'status'."}), 400
 
     order.status = new_status
+    time.sleep(0.3)
     db.session.commit()
 
     invalidate_orders_cache(order.id)
@@ -168,6 +171,7 @@ def delete_order(order_id: str):
         return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
 
     db.session.delete(order)
+    time.sleep(0.3)
     db.session.commit()
 
     invalidate_orders_cache(order.id)
