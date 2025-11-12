@@ -47,6 +47,10 @@ _SEED_ITEM_NAMES = [
 _SEED_STATUSES = ["received", "processing", "shipped", "delivered", "cancelled"]
 
 
+def _cache_enabled() -> bool:
+    return not current_app.config.get("CACHE_DISABLED", False)
+
+
 def _require_admin_auth(body: Optional[Dict[str, Any]] = None):
     """
     Validates a simple admin password shared via header or request body.
@@ -71,6 +75,15 @@ def _require_admin_auth(body: Optional[Dict[str, Any]] = None):
 @bp.route("/orders", methods=["GET"])
 def list_orders():
     """Return all orders (no pagination) to align with the reference app."""
+    if not _cache_enabled():
+        orders = Order.query.all()
+        return jsonify(
+            {
+                "total_orders": len(orders),
+                "orders": [order.to_dict() for order in orders],
+            }
+        )
+
     version = get_list_version()
     cache_key = f"orders:list:{version}"
     cached = cache_get(cache_key)
@@ -78,8 +91,7 @@ def list_orders():
         return jsonify(cached)
 
     orders_query = (
-        Order.query.options(selectinload(Order.items))
-        .order_by(Order.id.desc())
+        Order.query.options(selectinload(Order.items)).order_by(Order.id.desc())
     )
     orders = orders_query.all()
 
@@ -91,6 +103,12 @@ def list_orders():
 
 @bp.route("/orders/<string:order_id>", methods=["GET"])
 def get_order(order_id: str):
+    if not _cache_enabled():
+        order = Order.query.get(order_id)
+        if order is None:
+            return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
+        return jsonify(order.to_dict())
+
     cache_key = ORDERS_DETAIL_KEY.format(order_id=order_id)
     cached = cache_get(cache_key)
     if cached is not None:
@@ -139,7 +157,8 @@ def create_order():
     time.sleep(0.3)
     db.session.commit()
 
-    invalidate_orders_cache(new_order.id)
+    if _cache_enabled():
+        invalidate_orders_cache(new_order.id)
 
     return jsonify(new_order.to_dict()), 201
 
@@ -159,7 +178,8 @@ def update_order_status(order_id: str):
     time.sleep(0.3)
     db.session.commit()
 
-    invalidate_orders_cache(order.id)
+    if _cache_enabled():
+        invalidate_orders_cache(order.id)
 
     return jsonify(order.to_dict())
 
@@ -174,7 +194,8 @@ def delete_order(order_id: str):
     time.sleep(0.3)
     db.session.commit()
 
-    invalidate_orders_cache(order.id)
+    if _cache_enabled():
+        invalidate_orders_cache(order.id)
 
     return jsonify({"message": f"Order '{order_id}' has been deleted."}), 200
 
@@ -198,7 +219,8 @@ def reset_database():
         db.session.rollback()
         return jsonify({"error": "Failed to reset database."}), 500
 
-    invalidate_orders_cache()
+    if _cache_enabled():
+        invalidate_orders_cache()
     return jsonify({"message": "All orders have been removed."}), 200
 
 
@@ -251,7 +273,8 @@ def seed_database():
         db.session.rollback()
         return jsonify({"error": "Failed to seed database."}), 500
 
-    invalidate_orders_cache()
+    if _cache_enabled():
+        invalidate_orders_cache()
     return jsonify({"message": f"Seeded {count} fake orders."}), 201
 
 

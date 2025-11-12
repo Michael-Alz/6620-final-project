@@ -30,7 +30,8 @@ def create_app(config_class=Config) -> Flask:
             handler.setLevel(logging.INFO)
 
     db.init_app(app)
-    init_redis(app)
+    if not app.config.get("CACHE_DISABLED", False):
+        init_redis(app)
 
     app.register_blueprint(orders_bp)
 
