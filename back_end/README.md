@@ -48,7 +48,7 @@ source .venv/bin/activate  # or python3 -m venv .venv && source .venv/bin/activa
 nohup python3 run.py > server.log 2>&1 &
 
 # 4) Confirm status
-docker compose ps
+sudo docker compose ps
 curl http://localhost:8080/orders
 tail -f server.log
 ```
@@ -56,7 +56,7 @@ tail -f server.log
 Notes:
 
 -   `REDIS_URL` should remain `redis://localhost:6379/0` so the app talks to the Docker-hosted Redis.
--   Stop Redis with `docker compose down` (add `-v` if you want to drop the Redis volume).
+-   Stop Redis with `sudo docker compose down` (add `-v` if you want to drop the Redis volume).
 
 ## Cache Versioning
 
