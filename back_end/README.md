@@ -15,6 +15,7 @@ pip install -r requirements.txt
 
 `.env` variables (sample in `.env`):
 - `DATABASE_URL` (default `sqlite:///database.db`)
+- `DB_USER`, `DB_PASS`, `DB_HOST`, `DB_NAME` (optional; overrides `DATABASE_URL` to connect to AWS RDS/MySQL via PyMySQL)
 - `REDIS_URL` (default `redis://localhost:6379/0`)
 - `ORDERS_CACHE_TTL` cache TTL seconds (default 30)
 - `CACHE_DISABLED=true` disables Redis operations (rollback toggle)
@@ -27,6 +28,27 @@ docker start redis 2>/dev/null || docker run -d --name redis -p 6379:6379 redis:
 python run.py
 ```
 Endpoints exposed at `http://localhost:8080`.
+
+## Quick Start on EC2 (Redis via Docker, app via `nohup`)
+```bash
+# 1) Copy repo to EC2 and fill back_end/.env with your RDS creds.
+
+# 2) Start Redis in Docker (from repo root)
+docker compose up -d redis
+
+# 3) Run the Flask app outside Docker
+cd back_end
+source .venv/bin/activate  # or python3 -m venv .venv && source .venv/bin/activate
+nohup python3 run.py > server.log 2>&1 &
+
+# 4) Confirm status
+docker compose ps
+curl http://localhost:8080/orders
+tail -f server.log
+```
+Notes:
+- `REDIS_URL` should remain `redis://localhost:6379/0` so the app talks to the Docker-hosted Redis.
+- Stop Redis with `docker compose down` (add `-v` if you want to drop the Redis volume).
 
 ## Cache Versioning
 `GET /orders` uses versioned keys `orders:list:{version}:{limit}:{offset}`.  
