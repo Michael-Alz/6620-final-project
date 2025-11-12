@@ -46,7 +46,10 @@ sudo docker compose up -d redis
 # 3) Run the Flask app outside Docker
 cd back_end
 source .venv/bin/activate  # or python3 -m venv .venv && source .venv/bin/activate
+# Option A: dev server
 nohup python3 run.py > server.log 2>&1 &
+# Option B: Gunicorn (recommended for load)
+gunicorn --workers 3 --threads 4 --bind 0.0.0.0:8080 run:app --daemon --log-file server.log
 
 # 4) Confirm status
 sudo docker compose ps
@@ -55,8 +58,17 @@ tail -f server.log
 
 # Stop services
 sudo docker compose down
-pkill -f "python3 run.py"  # or kill $(cat nohup.out) if you track the PID separately
+# Stop whichever server you started:
+pkill -f "python3 run.py"                  # dev server
+pkill -f "gunicorn --workers 3 --threads"  # gunicorn daemon
+pkill -f gunicorn
+
+ps aux | grep python
+ps aux | grep gunicorn
+sudo lsof -i :8080
 ```
+
+````
 
 Notes:
 
@@ -70,7 +82,7 @@ Notes:
 
 ## Cache Versioning
 
-`GET /orders` caches the full list under `orders:list:{version}`.  
+`GET /orders` caches the full list under `orders:list:{version}`.
 Writes bump `orders:list:version` and drop affected `orders:detail:{order_id}` keys.
 
 ## Utility Scripts
@@ -79,7 +91,7 @@ Seed demo data:
 
 ```bash
 python scripts/seed_orders.py --count 1000
-```
+````
 
 Clear all orders/items:
 
