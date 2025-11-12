@@ -107,7 +107,7 @@ curl -s -X POST http://localhost:8080/orders \
   -H "Content-Type: application/json" \
   -d '{"customer_name":"Alice","items":[{"name":"Pen","quantity":2}]}'
 
-curl -s "http://localhost:8080/orders?limit=50&offset=0"
+curl -s http://localhost:8080/orders
 ```
 
 ## Checking Redis Cache
@@ -120,9 +120,11 @@ Keys created by the service:
 # List/list versioned keys
 docker exec -it redis redis-cli -n 0 keys 'orders:*'
 
-# Inspect a specific key
-docker exec -it redis redis-cli -n 0 ttl 'orders:list:0:50:0'
-docker exec -it redis redis-cli -n 0 get 'orders:list:0:50:0'
+# Inspect cached list + detail payloads
+docker exec -it redis redis-cli -n 0 get 'orders:list:version'          # current version number
+docker exec -it redis redis-cli -n 0 ttl 'orders:list:0'                # TTL for version 0 payload
+docker exec -it redis redis-cli -n 0 get 'orders:list:0'                # cached list JSON
+docker exec -it redis redis-cli -n 0 keys 'orders:detail:*'             # per-order detail keys
 ```
 
 Hit/miss statistics:
@@ -132,7 +134,7 @@ Hit/miss statistics:
 docker exec -it redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
 
 # Call an endpoint multiple times (first miss, subsequent hits)
-for i in {1..5}; do curl -s 'http://localhost:8080/orders?limit=50&offset=0' >/dev/null; done
+for i in {1..5}; do curl -s 'http://localhost:8080/orders' >/dev/null; done
 
 # Capture stats after
 docker exec -it redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
