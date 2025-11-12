@@ -3,10 +3,12 @@
 Flask + SQLAlchemy API for managing customer orders with Redis-backed caching.
 
 ## Prerequisites
-- Python 3.11+
-- Redis (Docker: `docker run -d --name redis -p 6379:6379 redis:7`)
+
+-   Python 3.11+
+-   Redis (Docker: `docker run -d --name redis -p 6379:6379 redis:7`)
 
 ## Setup
+
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
@@ -14,27 +16,31 @@ pip install -r requirements.txt
 ```
 
 `.env` variables (sample in `.env`):
-- `DATABASE_URL` (default `sqlite:///database.db`)
-- `DB_USER`, `DB_PASS`, `DB_HOST`, `DB_NAME` (optional; overrides `DATABASE_URL` to connect to AWS RDS/MySQL via PyMySQL)
-- `REDIS_URL` (default `redis://localhost:6379/0`)
-- `ORDERS_CACHE_TTL` cache TTL seconds (default 30)
-- `CACHE_DISABLED=true` disables Redis operations (rollback toggle)
+
+-   `DATABASE_URL` (default `sqlite:///database.db`)
+-   `DB_USER`, `DB_PASS`, `DB_HOST`, `DB_NAME` (optional; overrides `DATABASE_URL` to connect to AWS RDS/MySQL via PyMySQL)
+-   `REDIS_URL` (default `redis://localhost:6379/0`)
+-   `ORDERS_CACHE_TTL` cache TTL seconds (default 30)
+-   `CACHE_DISABLED=true` disables Redis operations (rollback toggle)
 
 ## Run
+
 ```bash
 # start Redis first so the app connects successfully
 docker start redis 2>/dev/null || docker run -d --name redis -p 6379:6379 redis:7
 
 python run.py
 ```
+
 Endpoints exposed at `http://localhost:8080`.
 
 ## Quick Start on EC2 (Redis via Docker, app via `nohup`)
+
 ```bash
 # 1) Copy repo to EC2 and fill back_end/.env with your RDS creds.
 
 # 2) Start Redis in Docker (from repo root)
-docker compose up -d redis
+sudo docker compose up -d redis
 
 # 3) Run the Flask app outside Docker
 cd back_end
@@ -46,39 +52,51 @@ docker compose ps
 curl http://localhost:8080/orders
 tail -f server.log
 ```
+
 Notes:
-- `REDIS_URL` should remain `redis://localhost:6379/0` so the app talks to the Docker-hosted Redis.
-- Stop Redis with `docker compose down` (add `-v` if you want to drop the Redis volume).
+
+-   `REDIS_URL` should remain `redis://localhost:6379/0` so the app talks to the Docker-hosted Redis.
+-   Stop Redis with `docker compose down` (add `-v` if you want to drop the Redis volume).
 
 ## Cache Versioning
+
 `GET /orders` uses versioned keys `orders:list:{version}:{limit}:{offset}`.  
 Writes bump `orders:list:version` and drop affected `orders:detail:{order_id}` keys.
 
 ## Utility Scripts
+
 Seed demo data:
+
 ```bash
 python scripts/seed_orders.py --count 1000
 ```
+
 Clear all orders/items:
+
 ```bash
 python scripts/clear_db.py
 ```
 
 Reset Redis cache (flush current DB defined by `REDIS_URL`):
+
 ```bash
 python scripts/reset_redis.py
 ```
 
 ## Load Testing
+
 Locust file: `tests/locustfile.py`.
+
 ```bash
 locust -f tests/locustfile.py --host=http://localhost:8080
 # optional: observe cache activity
 # docker exec -it redis redis-cli INFO stats
 ```
+
 Two user types simulate 90% reads, 10% writes.
 
 ## Smoke Test Flow
+
 ```bash
 curl -s -X POST http://localhost:8080/orders \
   -H "Content-Type: application/json" \
@@ -88,9 +106,11 @@ curl -s "http://localhost:8080/orders?limit=50&offset=0"
 ```
 
 ## Checking Redis Cache
+
 Quick ways to verify the cache is functioning.
 
 Keys created by the service:
+
 ```bash
 # List/list versioned keys
 docker exec -it redis redis-cli -n 0 keys 'orders:*'
@@ -101,6 +121,7 @@ docker exec -it redis redis-cli -n 0 get 'orders:list:0:50:0'
 ```
 
 Hit/miss statistics:
+
 ```bash
 # Capture stats before
 docker exec -it redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
@@ -113,6 +134,7 @@ docker exec -it redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misse
 ```
 
 Live command stream (debugging):
+
 ```bash
 docker exec -it redis redis-cli monitor
 ```

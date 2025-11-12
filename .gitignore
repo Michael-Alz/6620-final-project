@@ -28,7 +28,6 @@ env/
 
 # Environment files
 .env
-.env.*
 
 # Flask/SQLAlchemy/SQLite
 instance/
