@@ -22,6 +22,7 @@ pip install -r requirements.txt
 -   `REDIS_URL` (default `redis://localhost:6379/0`)
 -   `ORDERS_CACHE_TTL` cache TTL seconds (default 30)
 -   `CACHE_DISABLED=true` disables Redis operations (rollback toggle)
+-   `ADMIN_PASSWORD` shared secret required for `/admin/reset` and `/admin/seed`
 
 ## Run
 
@@ -58,9 +59,13 @@ Notes:
 -   `REDIS_URL` should remain `redis://localhost:6379/0` so the app talks to the Docker-hosted Redis.
 -   Stop Redis with `sudo docker compose down` (add `-v` if you want to drop the Redis volume).
 
+## Admin Endpoints
+-   `POST /admin/reset` — wipes all orders/items after verifying `ADMIN_PASSWORD` via `X-Admin-Password` header or a `password` field in the JSON body.
+-   `POST /admin/seed` — seeds fake orders; provide `{ "count": 100 }` plus the admin password to backfill demo data quickly.
+
 ## Cache Versioning
 
-`GET /orders` uses versioned keys `orders:list:{version}:{limit}:{offset}`.  
+`GET /orders` caches the full list under `orders:list:{version}`.  
 Writes bump `orders:list:version` and drop affected `orders:detail:{order_id}` keys.
 
 ## Utility Scripts

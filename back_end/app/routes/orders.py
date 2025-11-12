@@ -1,6 +1,8 @@
-from typing import Any
+import random
+from typing import Any, Dict, Optional
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, current_app, jsonify, request
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import selectinload
 
 from ..cache import (
@@ -15,38 +17,72 @@ from ..models import Order, OrderItem
 
 bp = Blueprint("orders", __name__)
 
+_SEED_CUSTOMER_NAMES = [
+    "Alice Johnson",
+    "Ben Carter",
+    "Chloe Ramirez",
+    "Darius Lee",
+    "Emma Patel",
+    "Felix Wright",
+    "Grace Kim",
+    "Hector Gomez",
+    "Isla Chen",
+    "Javier Torres",
+]
+
+_SEED_ITEM_NAMES = [
+    "Wireless Mouse",
+    "Mechanical Keyboard",
+    "USB-C Hub",
+    "Laptop Stand",
+    "Noise Cancelling Headphones",
+    "Ergonomic Chair",
+    "4K Monitor",
+    "Portable SSD",
+    "Webcam",
+    "Desk Lamp",
+]
+
+_SEED_STATUSES = ["received", "processing", "shipped", "delivered", "cancelled"]
+
+
+def _require_admin_auth(body: Optional[Dict[str, Any]] = None):
+    """
+    Validates a simple admin password shared via header or request body.
+    """
+    admin_password = current_app.config.get("ADMIN_PASSWORD")
+    if not admin_password:
+        return (
+            jsonify({"error": "Admin password is not configured on the server."}),
+            500,
+        )
+
+    provided_password = request.headers.get("X-Admin-Password")
+    if provided_password is None and isinstance(body, dict):
+        provided_password = body.get("password")
+
+    if provided_password != admin_password:
+        return jsonify({"error": "Unauthorized."}), 401
+
+    return None
+
 
 @bp.route("/orders", methods=["GET"])
 def list_orders():
-    try:
-        limit = int(request.args.get("limit", 50))
-    except (TypeError, ValueError):
-        limit = 50
-    limit = max(1, min(limit, 200))
-
-    try:
-        offset = int(request.args.get("offset", 0))
-    except (TypeError, ValueError):
-        offset = 0
-    offset = max(offset, 0)
-
+    """Return all orders (no pagination) to align with the reference app."""
     version = get_list_version()
-    cache_key = f"orders:list:{version}:{limit}:{offset}"
+    cache_key = f"orders:list:{version}"
     cached = cache_get(cache_key)
     if cached is not None:
         return jsonify(cached)
 
     orders_query = (
         Order.query.options(selectinload(Order.items))
-        .order_by(Order.created_at.desc())
+        .order_by(Order.id.desc())
     )
-    paged_orders = orders_query.offset(offset).limit(limit).all()
+    orders = orders_query.all()
 
-    response = {
-        "count": len(paged_orders),
-        "next_offset": offset + len(paged_orders),
-        "orders": [order.to_dict() for order in paged_orders],
-    }
+    response = {"total_orders": len(orders), "orders": [order.to_dict() for order in orders]}
     cache_setex(cache_key, response)
 
     return jsonify(response)
@@ -137,6 +173,82 @@ def delete_order(order_id: str):
     invalidate_orders_cache(order.id)
 
     return jsonify({"message": f"Order '{order_id}' has been deleted."}), 200
+
+
+@bp.route("/admin/reset", methods=["POST"])
+def reset_database():
+    """
+    Removes all orders and associated items from the database.
+    Requires the admin password via header or JSON body.
+    """
+    body = request.get_json(silent=True)
+    auth_error = _require_admin_auth(body if isinstance(body, dict) else None)
+    if auth_error:
+        return auth_error
+
+    try:
+        OrderItem.query.delete()
+        Order.query.delete()
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Failed to reset database."}), 500
+
+    invalidate_orders_cache()
+    return jsonify({"message": "All orders have been removed."}), 200
+
+
+@bp.route("/admin/seed", methods=["POST"])
+def seed_database():
+    """
+    Populates the database with a number of fake orders.
+    Expects JSON body { "count": <int> } and the admin password.
+    """
+    body = request.get_json(silent=True)
+    parsed_body = body if isinstance(body, dict) else None
+
+    auth_error = _require_admin_auth(parsed_body)
+    if auth_error:
+        return auth_error
+
+    if isinstance(body, dict):
+        count_value = body.get("count")
+    elif isinstance(body, int):
+        count_value = body
+    else:
+        count_value = None
+
+    try:
+        count = int(count_value)
+    except (TypeError, ValueError):
+        return jsonify({"error": "Request body must include an integer 'count' value."}), 400
+
+    if count <= 0:
+        return jsonify({"error": "'count' must be greater than zero."}), 400
+
+    try:
+        for _ in range(count):
+            order = Order(
+                customer_name=random.choice(_SEED_CUSTOMER_NAMES),
+                status=random.choice(_SEED_STATUSES),
+            )
+            item_total = random.randint(1, 5)
+            for _ in range(item_total):
+                order.items.append(
+                    OrderItem(
+                        item_name=random.choice(_SEED_ITEM_NAMES),
+                        quantity=random.randint(1, 5),
+                    )
+                )
+            db.session.add(order)
+
+        db.session.commit()
+    except SQLAlchemyError:
+        db.session.rollback()
+        return jsonify({"error": "Failed to seed database."}), 500
+
+    invalidate_orders_cache()
+    return jsonify({"message": f"Seeded {count} fake orders."}), 201
 
 
 def _hydrate_items(order: Order, items: Any) -> None:

@@ -1,4 +1,3 @@
-from datetime import datetime
 import uuid
 from typing import Any, Dict, List
 
@@ -17,9 +16,6 @@ class Order(db.Model):
     status: Mapped[str] = mapped_column(
         db.String(20), nullable=False, default="received"
     )
-    created_at: Mapped[datetime] = mapped_column(
-        db.DateTime, nullable=False, default=datetime.utcnow
-    )
     items: Mapped[List["OrderItem"]] = relationship(
         "OrderItem", back_populates="order", cascade="all, delete-orphan"
     )
@@ -29,7 +25,6 @@ class Order(db.Model):
             "order_id": self.id,
             "customer_name": self.customer_name,
             "status": self.status,
-            "created_at": self.created_at.isoformat(),
             "items": [item.to_dict() for item in self.items],
         }
 
