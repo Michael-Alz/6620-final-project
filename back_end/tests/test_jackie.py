@@ -96,6 +96,10 @@ class FastFoodUser(HttpUser):
         if self.placed_order_ids:
             # Pop an ID to ensure we only try to delete it once
             order_id_to_delete = self.placed_order_ids.pop(0)
+            # Remove from processing queue if it's still pending there
+            self.orders_to_process = [
+                oid for oid in self.orders_to_process if oid != order_id_to_delete
+            ]
             self.client.delete(
                 f"/orders/{order_id_to_delete}",
                 name="DELETE /orders/[id]"

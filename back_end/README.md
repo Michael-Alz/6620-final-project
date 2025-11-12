@@ -52,6 +52,10 @@ nohup python3 run.py > server.log 2>&1 &
 sudo docker compose ps
 curl http://localhost:8080/orders
 tail -f server.log
+
+# Stop services
+sudo docker compose down
+pkill -f "python3 run.py"  # or kill $(cat nohup.out) if you track the PID separately
 ```
 
 Notes:
@@ -60,6 +64,7 @@ Notes:
 -   Stop Redis with `sudo docker compose down` (add `-v` if you want to drop the Redis volume).
 
 ## Admin Endpoints
+
 -   `POST /admin/reset` — wipes all orders/items after verifying `ADMIN_PASSWORD` via `X-Admin-Password` header or a `password` field in the JSON body.
 -   `POST /admin/seed` — seeds fake orders; provide `{ "count": 100 }` plus the admin password to backfill demo data quickly.
 
@@ -137,9 +142,16 @@ docker exec -it redis redis-cli -n 0 keys 'orders:detail:*'             # per-or
 Hit/miss statistics:
 
 ```bash
-# Check overall hit ratio (% of keyspace_hits over hits+misses)
+# Reset the statistics:
+sudo docker compose exec redis redis-cli CONFIG RESETSTAT
+
+# Check hits and misses:
+sudo docker compose exec redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses'
+
+# Percentages:
 sudo docker compose exec redis sh -c \
-'redis-cli info stats | awk -F: "/keyspace_hits|keyspace_misses/{gsub(\r,\"\",$2); a[$1]=$2} END{t=a[2]+a[1]; if(t==0) print 0; else printf(\"%.2f%%\n\", a[1]*100/t)}"'
+"redis-cli info stats | awk -F: '/keyspace_hits|keyspace_misses/{gsub(/\r/,\"\",\$2); a[\$1]=\$2} END{t=a[\"keyspace_hits\"]+a[\"keyspace_misses\"]; if(t==0) print 0; else printf(\"%.2f%%\\n\", a[\"keyspace_hits\"]*100/t)}'"
+
 
 # Fetch the raw counters if you prefer manual inspection
 sudo docker compose exec redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
