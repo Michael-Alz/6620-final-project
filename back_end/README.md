@@ -69,10 +69,22 @@ Write operations now flow through RabbitMQ for back-pressure control, so the Fla
    A minimal compose file is included:
 
    ```bash
-   docker compose up rabbitmq
+   cd back_end
+   docker compose up -d rabbitmq
    ```
 
    This exposes AMQP on `localhost:5672` and the management UI on `http://localhost:15672` (default user/pass `guest/guest` unless overridden in `.env`).
+
+   **Purge the queue for a clean test run:**
+
+   ```bash
+   cd back_end
+   # Make sure the rabbitmq service is running (use `docker compose ps`)
+   docker compose exec rabbitmq \
+     rabbitmqctl purge_queue "${RABBITMQ_QUEUE_NAME:-order_write_jobs}"
+   ```
+
+   (`rabbitmqctl` ships in the container, so no extra CLI download is needed. Clearing the queue is handy before rerunning Locust.)
 
 3. **Run the Flask API**
 
@@ -116,8 +128,9 @@ For EC2 you follow the same overall flow, but you can point `RABBITMQ_HOST`, `RA
 
 3. **Start RabbitMQ**
 
-    - **Using Docker on the EC2 host:** `docker compose up -d rabbitmq`
+    - **Using Docker on the EC2 host:** `cd ~/6620-final-project/back_end && docker compose up -d rabbitmq`
     - **Using Amazon MQ:** skip Docker; just ensure the security groups allow AMQP from the EC2 instance to the broker and the `.env` variables reference the broker endpoint.
+    - To purge the queue on the EC2 host when using Docker: `cd ~/6620-final-project/back_end && docker compose exec rabbitmq rabbitmqctl purge_queue "${RABBITMQ_QUEUE_NAME:-order_write_jobs}"`. If you connect to Amazon MQ instead, use the AWS console or a `rabbitmqadmin` CLI pointed at that broker endpoint.
 
 4. **Run the Flask API (background)**
 

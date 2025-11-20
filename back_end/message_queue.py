@@ -1,0 +1,89 @@
+"""
+Simple RabbitMQ helpers used by both the Flask app and the worker process.
+
+The configuration stays in environment variables so we can point to either a
+local Docker RabbitMQ or an AWS MQ broker (also AMQP) just by changing the
+host/port/credentials without touching the code.
+"""
+
+import json
+import os
+import threading
+from typing import Any, Dict, Optional
+
+import pika
+from pika.adapters.blocking_connection import BlockingChannel
+from pika.spec import BasicProperties
+from dotenv import load_dotenv
+
+load_dotenv()
+
+RABBITMQ_HOST = os.environ.get("RABBITMQ_HOST", "localhost")
+RABBITMQ_PORT = int(os.environ.get("RABBITMQ_PORT", "5672"))
+RABBITMQ_USER = os.environ.get("RABBITMQ_USER", "guest")
+RABBITMQ_PASSWORD = os.environ.get("RABBITMQ_PASSWORD", "guest")
+RABBITMQ_QUEUE_NAME = os.environ.get(
+    "RABBITMQ_QUEUE_NAME", "order_write_jobs"
+)
+
+
+def build_connection_parameters() -> pika.ConnectionParameters:
+    """Connection settings shared by the app and the worker."""
+    credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
+    return pika.ConnectionParameters(
+        host=RABBITMQ_HOST,
+        port=RABBITMQ_PORT,
+        credentials=credentials,
+        heartbeat=60,
+        blocked_connection_timeout=30,
+    )
+
+
+class RabbitMQPublisher:
+    """
+    Tiny helper around pika so that API handlers can fire-and-forget jobs.
+
+    Having a single shared publisher lets Flask quickly enqueue writes and
+    return HTTP 202. The worker drains the queue, smoothing out spikes and
+    protecting MySQL from sudden bursts (back pressure).
+    """
+
+    def __init__(self):
+        self._connection: Optional[pika.BlockingConnection] = None
+        self._channel: Optional[BlockingChannel] = None
+        self._lock = threading.Lock()
+
+    def _ensure_channel(self) -> BlockingChannel:
+        if (
+            self._connection
+            and not self._connection.is_closed
+            and self._channel
+            and self._channel.is_open
+        ):
+            return self._channel
+
+        self._connection = pika.BlockingConnection(
+            build_connection_parameters()
+        )
+        self._channel = self._connection.channel()
+        self._channel.queue_declare(queue=RABBITMQ_QUEUE_NAME, durable=True)
+        return self._channel
+
+    def publish(self, job: Dict[str, Any]) -> None:
+        """
+        Publishes a JSON message to the queue. Raises pika exceptions if
+        the connection fails so the API can return a 503.
+        """
+        with self._lock:
+            channel = self._ensure_channel()
+            channel.basic_publish(
+                exchange="",
+                routing_key=RABBITMQ_QUEUE_NAME,
+                body=json.dumps(job),
+                properties=BasicProperties(
+                    delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE
+                ),
+            )
+
+
+publisher = RabbitMQPublisher()

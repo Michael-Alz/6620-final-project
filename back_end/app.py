@@ -28,17 +28,17 @@ CORS(app, origins="*")
 
 # --- Database Configuration for AWS RDS ---
 load_dotenv()
-db_user = os.environ.get("DB_USER")
-db_pass = os.environ.get("DB_PASS")
-db_host = os.environ.get("DB_HOST")
-db_name = os.environ.get("DB_NAME")
+# db_user = os.environ.get("DB_USER")
+# db_pass = os.environ.get("DB_PASS")
+# db_host = os.environ.get("DB_HOST")
+# db_name = os.environ.get("DB_NAME")
 
-app.config["SQLALCHEMY_DATABASE_URI"] = (
-    f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
-)
+# app.config["SQLALCHEMY_DATABASE_URI"] = (
+#     f"mysql+pymysql://{db_user}:{db_pass}@{db_host}/{db_name}"
+# )
 
 # DB test in local
-# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///database.db'
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 
@@ -71,7 +71,8 @@ _SEED_ITEM_NAMES = [
     "Desk Lamp",
 ]
 
-_SEED_STATUSES = ["received", "processing", "shipped", "delivered", "cancelled"]
+_SEED_STATUSES = ["received", "processing",
+                  "shipped", "delivered", "cancelled"]
 
 
 def _require_admin_auth(body: Optional[Dict[str, Any]] = None):
@@ -283,15 +284,8 @@ def update_order_status(order_id: str):
 
     Returns:
         JSON: Job metadata describing the queued update.
-        HTTP Status Code: 202 on success, 404 if not found, 400 for bad request
+        HTTP Status Code: 202 on success, 400 for bad request
     """
-    order = Order.query.get(order_id)
-    if not order:
-        return (
-            jsonify({"error": f"Order with ID '{order_id}' not found."}),
-            404,
-        )
-
     data = request.get_json()
     if not data or "status" not in data:
         return jsonify({"error": "Missing 'status' in request body."}), 400
@@ -325,13 +319,9 @@ def delete_order(order_id: str):
         order_id (str): The unique identifier for the order.
 
     Returns:
-        JSON: Job metadata describing the queued delete or an error if not found.
-        HTTP Status Code: 202 on success, 404 if not found.
+        JSON: Job metadata describing the queued delete.
+        HTTP Status Code: 202 on success.
     """
-    order = Order.query.get(order_id)
-    if not order:
-        return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
-
     try:
         job_response = _enqueue_job("delete_order", {"order_id": order_id})
     except Exception:
