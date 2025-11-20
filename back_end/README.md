@@ -52,47 +52,95 @@ curl -X POST "http://<your-ec2-public-ipv4-address>:8080/admin/seed" \
 
 ---
 
+## Running Locally with RabbitMQ
+
+Write operations now flow through RabbitMQ for back-pressure control, so the Flask app and the queue worker both need to run. Reads (`GET /orders*`) still hit the DB synchronously.
+
+1. **Install dependencies**
+
+   ```bash
+   cd back_end
+   pip install -r requirements.txt
+   cp .env.example .env   # then edit it with real DB + RabbitMQ credentials
+   ```
+
+2. **Start RabbitMQ via Docker**
+
+   A minimal compose file is included:
+
+   ```bash
+   docker compose up rabbitmq
+   ```
+
+   This exposes AMQP on `localhost:5672` and the management UI on `http://localhost:15672` (default user/pass `guest/guest` unless overridden in `.env`).
+
+3. **Run the Flask API**
+
+   ```bash
+   # in one terminal
+   cd back_end
+   flask --app app run --host 0.0.0.0 --port 8080
+   # or python app.py if you prefer the previous entry point
+   ```
+
+4. **Run the queue worker**
+
+   ```bash
+   # in a second terminal
+   cd back_end
+   python worker.py
+   ```
+
+   The worker consumes the queue and performs DB writes at the pace MySQL can handle, so HTTP requests see quick `202 Accepted` responses even under load.
+
+5. **Optional: seeded data or admin tasks**
+
+   Use the `/admin/seed` and `/admin/reset` endpoints with the `X-Admin-Password` header just like before.
+
 ## Running on the AWS EC2 Server (Production)
 
-Follow these steps to run the server on the pre-configured EC2 instance.
+For EC2 you follow the same overall flow, but you can point `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, and `RABBITMQ_PASSWORD` to either the local Docker broker (during testing) or an Amazon MQ broker (AMQP). The queue name stays the same unless you change `RABBITMQ_QUEUE_NAME`.
 
-### 1. Connect to the EC2 Instance
+1. **Connect to the EC2 instance**
 
-Use your terminal to SSH into the server.
+   ```bash
+   ssh -i "path/to/your-key.pem" ec2-user@<your-ec2-public-dns>
+   ```
 
-```bash
-ssh -i "path/to/your-key.pem" ec2-user@<your-ec2-public-dns>
-```
+2. **Export environment variables**
 
-### 2. Check Environment Variables (Automatic)
+    - Copy `.env.example` to `~/6620-final-project/back_end/.env`.
+    - Fill in the DB credentials (pointing to RDS).
+    - Point the RabbitMQ variables to your Amazon MQ (or to the Docker container IP if you run RabbitMQ on the EC2 host).
+    - Source the env file (`export $(grep -v '^#' .env | xargs)`), or add the exports to your shell profile.
 
-No action is needed. All required environment variables (`DB_HOST`, `DB_USER`, `DB_PASS`, `DB_NAME`) are automatically loaded from the `~/.bash_profile` script upon login.
+3. **Start RabbitMQ**
 
-### 3. Run the Server
+    - **Using Docker on the EC2 host:** `docker compose up -d rabbitmq`
+    - **Using Amazon MQ:** skip Docker; just ensure the security groups allow AMQP from the EC2 instance to the broker and the `.env` variables reference the broker endpoint.
 
-We use `nohup` to run the server in the background, so it keeps running even after you close your terminal. Logs will be saved to `server.log`.
+4. **Run the Flask API (background)**
 
-```bash
-# Navigate to the backend directory
-cd ~/6620-final-project/back_end
+   ```bash
+   cd ~/6620-final-project/back_end
+   nohup python3 app.py > server.log 2>&1 &
+   ```
 
-# Start the server in the background
-nohup python3 app.py > server.log 2>&1 &
-```
+5. **Run the worker (background)**
 
-### 4. How to Check or Stop the Server
+   ```bash
+   cd ~/6620-final-project/back_end
+   nohup python3 worker.py > worker.log 2>&1 &
+   ```
 
-**To check the live server logs:**
+6. **Check or stop services**
 
-```bash
-tail -f server.log
-```
+   ```bash
+   tail -f server.log    # API logs
+   tail -f worker.log    # worker logs
+   pkill -f app.py       # stop API
+   pkill -f worker.py    # stop worker
+   docker compose down   # stop local RabbitMQ if running via Docker
+   ```
 
-(Press `Ctrl+C` to stop viewing logs)
-
-**To stop the server:**
-
-```bash
-# This command will find and stop the app.py process
-pkill -f app.py
-```
+Switching from local RabbitMQ to Amazon MQ later only requires updating the `RABBITMQ_*` environment variables—no code changes are necessary.

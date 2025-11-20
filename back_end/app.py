@@ -12,7 +12,6 @@ The data model uses a normalized schema with two main tables:
 
 import os
 import random
-import time
 import uuid
 from typing import Any, Dict, Optional
 
@@ -22,6 +21,7 @@ from flask_sqlalchemy import SQLAlchemy
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import relationship
 from dotenv import load_dotenv
+from message_queue import publisher
 
 app = Flask(__name__)
 CORS(app, origins="*")
@@ -95,6 +95,20 @@ def _require_admin_auth(body: Optional[Dict[str, Any]] = None):
     return None
 
 
+def _enqueue_job(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Pushes the job to RabbitMQ and returns a standard response payload.
+    """
+    job_id = str(uuid.uuid4())
+    job = {"job_id": job_id, "type": job_type, "payload": payload}
+    publisher.publish(job)
+    return {
+        "job_id": job_id,
+        "job_type": job_type,
+        "status": "queued",
+    }
+
+
 # --- Database Models ---
 class Order(db.Model):
     """
@@ -158,8 +172,8 @@ def create_order():
     where each item has a 'name' and 'quantity'.
 
     Returns:
-        JSON: The newly created order object.
-        HTTP Status Code: 201 on success.
+        JSON: Job metadata describing the queued create.
+        HTTP Status Code: 202 on success (creation happens asynchronously).
     """
     data = request.get_json()
     if not data or "customer_name" not in data or "items" not in data:
@@ -172,29 +186,46 @@ def create_order():
             400,
         )
 
-    new_order = Order(customer_name=data["customer_name"])
+    if not isinstance(data["items"], list) or not data["items"]:
+        return jsonify({"error": "`items` must be a non-empty list."}), 400
 
+    parsed_items = []
     try:
         for item_data in data["items"]:
             if "name" not in item_data or "quantity" not in item_data:
                 raise ValueError(
                     "Each item must have a 'name' and 'quantity'."
                 )
-
-            item = OrderItem(
-                item_name=item_data["name"],
-                quantity=item_data["quantity"],
-                order=new_order,  # Associate item with the new order
+            parsed_items.append(
+                {"name": item_data["name"], "quantity": item_data["quantity"]}
             )
-            db.session.add(item)
-    except (ValueError, KeyError) as e:
-        return jsonify({"error": str(e)}), 400
+    except (ValueError, KeyError) as exc:
+        return jsonify({"error": str(exc)}), 400
 
-    db.session.add(new_order)
-    time.sleep(0.3)
-    db.session.commit()
+    order_id = str(uuid.uuid4())
+    payload = {
+        "order_id": order_id,
+        "customer_name": data["customer_name"],
+        "status": data.get("status", "received"),
+        "items": parsed_items,
+    }
 
-    return jsonify(new_order.to_dict()), 201
+    try:
+        job_response = _enqueue_job("create_order", payload)
+    except Exception:
+        app.logger.exception("Failed to enqueue create_order job.")
+        return jsonify({"error": "Unable to queue order."}), 503
+
+    return (
+        jsonify(
+            {
+                **job_response,
+                "order_id": order_id,
+                "message": "Order creation scheduled.",
+            }
+        ),
+        202,
+    )
 
 
 @app.route("/orders/<string:order_id>", methods=["GET"])
@@ -251,8 +282,8 @@ def update_order_status(order_id: str):
         order_id (str): The unique identifier for the order to update.
 
     Returns:
-        JSON: The updated order object.
-        HTTP Status Code: 200 on success, 404 if not found, 400 for bad request
+        JSON: Job metadata describing the queued update.
+        HTTP Status Code: 202 on success, 404 if not found, 400 for bad request
     """
     order = Order.query.get(order_id)
     if not order:
@@ -265,11 +296,24 @@ def update_order_status(order_id: str):
     if not data or "status" not in data:
         return jsonify({"error": "Missing 'status' in request body."}), 400
 
-    order.status = data["status"]
-    time.sleep(0.3)
-    db.session.commit()
+    payload = {"order_id": order_id, "status": data["status"]}
 
-    return jsonify(order.to_dict())
+    try:
+        job_response = _enqueue_job("update_order_status", payload)
+    except Exception:
+        app.logger.exception("Failed to enqueue update_order_status job.")
+        return jsonify({"error": "Unable to queue status update."}), 503
+
+    return (
+        jsonify(
+            {
+                **job_response,
+                "order_id": order_id,
+                "message": "Status update scheduled.",
+            }
+        ),
+        202,
+    )
 
 
 @app.route("/orders/<string:order_id>", methods=["DELETE"])
@@ -281,18 +325,29 @@ def delete_order(order_id: str):
         order_id (str): The unique identifier for the order.
 
     Returns:
-        JSON: A message confirming deletion or an error if not found.
-        HTTP Status Code: 200 on success, 404 if not found.
+        JSON: Job metadata describing the queued delete or an error if not found.
+        HTTP Status Code: 202 on success, 404 if not found.
     """
     order = Order.query.get(order_id)
     if not order:
         return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
 
-    db.session.delete(order)
-    time.sleep(0.3)
-    db.session.commit()
+    try:
+        job_response = _enqueue_job("delete_order", {"order_id": order_id})
+    except Exception:
+        app.logger.exception("Failed to enqueue delete_order job.")
+        return jsonify({"error": "Unable to queue delete job."}), 503
 
-    return jsonify({"message": f"Order '{order_id}' has been deleted."}), 200
+    return (
+        jsonify(
+            {
+                **job_response,
+                "order_id": order_id,
+                "message": "Deletion scheduled.",
+            }
+        ),
+        202,
+    )
 
 
 @app.route("/admin/reset", methods=["POST"])
