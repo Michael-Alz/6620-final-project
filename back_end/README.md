@@ -132,18 +132,18 @@ For EC2 you follow the same overall flow, but you can point `RABBITMQ_HOST`, `RA
     - **Using Amazon MQ:** skip Docker; just ensure the security groups allow AMQP from the EC2 instance to the broker and the `.env` variables reference the broker endpoint.
     - To purge the queue on the EC2 host when using Docker: `cd ~/6620-final-project/back_end && docker compose exec rabbitmq rabbitmqctl purge_queue "${RABBITMQ_QUEUE_NAME:-order_write_jobs}"`. If you connect to Amazon MQ instead, use the AWS console or a `rabbitmqadmin` CLI pointed at that broker endpoint.
 
-4. **Run the Flask API (background)**
+4. **Run the Flask API + workers (background)**
 
    ```bash
    cd ~/6620-final-project/back_end
-   ./start_services.sh   # starts API + worker (pid files + logs)
+   WORKER_COUNT=2 ./start_services.sh   # starts API + N workers (pid/log per worker)
    ```
 
 5. **Check logs (follow)**
 
    ```bash
    tail -f server.log    # API logs
-   tail -f worker.log    # worker logs
+   tail -f worker_1.log  # worker logs (one per worker)
    ```
 
 6. **Check or stop services**
