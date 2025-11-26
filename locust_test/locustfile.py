@@ -1,4 +1,5 @@
 import random
+import time
 import uuid
 from locust import HttpUser, task, between
 
@@ -70,7 +71,21 @@ class FastFoodUser(HttpUser):
         if self.placed_order_ids:
             # Pick a random order from their history to check
             order_id = random.choice(self.placed_order_ids)
-            self.client.get(f"/orders/{order_id}", name="GET /orders/[id]")
+            retries = 5
+            for i in range(retries):
+                with self.client.get(f"/orders/{order_id}", name="GET /orders/[id]", catch_response=True) as resp:
+                    if resp.status_code == 200:
+                        resp.success()
+                        break
+                    elif resp.status_code == 404:
+                        if i < retries - 1:
+                            resp.success()
+                            time.sleep(1)
+                        else:
+                            resp.failure(
+                                f"Order {order_id} not found after {retries} retries")
+                    else:
+                        resp.failure(f"Unexpected status: {resp.status_code}")
 
     @task(weight=1)
     def process_an_order(self):
