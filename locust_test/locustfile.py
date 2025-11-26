@@ -28,7 +28,7 @@ def _generate_order_data():
 
 class FastFoodUser(HttpUser):
     # Set this to the Public IP address of your EC2 instance
-    host = "http://YOUR_EC2_PUBLIC_IPV4_ADDRESS:8080"
+    host = "http://18.219.59.42:8080"
 
     # Simulates a user waiting 1-3 seconds between tasks
     wait_time = between(1, 3)

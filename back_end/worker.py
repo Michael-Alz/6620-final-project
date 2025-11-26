@@ -10,6 +10,7 @@ RABBITMQ_* environment variables defined in `.env`.
 import json
 import logging
 import signal
+import time
 from typing import Any, Dict
 
 import pika
@@ -51,6 +52,7 @@ def _process_create(payload: Dict[str, Any]) -> None:
             )
 
         db.session.add(order)
+        time.sleep(0.3)  # simulate slow DB write
         try:
             db.session.commit()
         except SQLAlchemyError:
@@ -70,6 +72,7 @@ def _process_update_status(payload: Dict[str, Any]) -> None:
             )
             return
         order.status = payload["status"]
+        time.sleep(0.3)  # simulate slow DB write
         try:
             db.session.commit()
         except SQLAlchemyError:
@@ -85,6 +88,7 @@ def _process_delete(payload: Dict[str, Any]) -> None:
         if not order:
             logger.info("Order %s already gone, nothing to delete.", order_id)
             return
+        time.sleep(0.3)  # simulate slow DB write
         db.session.delete(order)
         try:
             db.session.commit()
