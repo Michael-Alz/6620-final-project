@@ -136,23 +136,20 @@ For EC2 you follow the same overall flow, but you can point `RABBITMQ_HOST`, `RA
 
    ```bash
    cd ~/6620-final-project/back_end
-   nohup python3 app.py > server.log 2>&1 &
+   ./start_services.sh   # starts API + worker (pid files + logs)
    ```
 
-5. **Run the worker (background)**
+5. **Check logs (follow)**
 
    ```bash
-   cd ~/6620-final-project/back_end
-   nohup python3 worker.py > worker.log 2>&1 &
+   tail -f server.log    # API logs
+   tail -f worker.log    # worker logs
    ```
 
 6. **Check or stop services**
 
    ```bash
-   tail -f server.log    # API logs
-   tail -f worker.log    # worker logs
-   pkill -f app.py       # stop API
-   pkill -f worker.py    # stop worker
+   ./stop_services.sh    # stops API + worker using pid files
    docker compose down   # stop local RabbitMQ if running via Docker
    ```
 
