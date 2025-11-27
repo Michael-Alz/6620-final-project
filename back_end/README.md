@@ -136,6 +136,7 @@ For EC2 you follow the same overall flow, but you can point `RABBITMQ_HOST`, `RA
 
    ```bash
    cd ~/6620-final-project/back_end
+   chmod +x start_services.sh stop_services.sh   # once
    WORKER_COUNT=2 ./start_services.sh   # starts API + N workers (pid/log per worker)
    ```
 

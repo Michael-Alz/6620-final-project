@@ -8,6 +8,7 @@ host/port/credentials without touching the code.
 
 import json
 import os
+import ssl
 import threading
 from typing import Any, Dict, Optional
 
@@ -25,17 +26,27 @@ RABBITMQ_PASSWORD = os.environ.get("RABBITMQ_PASSWORD", "guest")
 RABBITMQ_QUEUE_NAME = os.environ.get(
     "RABBITMQ_QUEUE_NAME", "order_write_jobs"
 )
+MQ_USE_SSL = os.environ.get("MQ_USE_SSL", "False").lower() in (
+    "1",
+    "true",
+    "yes",
+)
 
 
 def build_connection_parameters() -> pika.ConnectionParameters:
     """Connection settings shared by the app and the worker."""
     credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASSWORD)
+    ssl_options = None
+    if MQ_USE_SSL:
+        ssl_context = ssl.create_default_context()
+        ssl_options = pika.SSLOptions(ssl_context, RABBITMQ_HOST)
     return pika.ConnectionParameters(
         host=RABBITMQ_HOST,
         port=RABBITMQ_PORT,
         credentials=credentials,
         heartbeat=60,
         blocked_connection_timeout=30,
+        ssl_options=ssl_options,
     )
 
 
