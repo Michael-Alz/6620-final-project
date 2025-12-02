@@ -1,6 +1,6 @@
 import random
-import time
-from typing import Any, Dict, Optional
+import uuid
+from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, current_app, jsonify, request
 from sqlalchemy.exc import SQLAlchemyError
@@ -9,11 +9,14 @@ from sqlalchemy.orm import selectinload
 from ..cache import (
     ORDERS_DETAIL_KEY,
     cache_get,
+    cache_get_temp_order,
     cache_setex,
+    cache_set_temp_order,
     get_list_version,
     invalidate_orders_cache,
 )
 from ..extensions import db
+from ..message_queue import publisher
 from ..models import Order, OrderItem
 
 bp = Blueprint("orders", __name__)
@@ -72,6 +75,13 @@ def _require_admin_auth(body: Optional[Dict[str, Any]] = None):
     return None
 
 
+def _enqueue_job(job_type: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    job_id = str(uuid.uuid4())
+    job = {"job_id": job_id, "type": job_type, "payload": payload}
+    publisher.publish(job)
+    return {"job_id": job_id, "job_type": job_type, "status": "queued"}
+
+
 @bp.route("/orders", methods=["GET"])
 def list_orders():
     """Return all orders (no pagination) to align with the reference app."""
@@ -103,6 +113,10 @@ def list_orders():
 
 @bp.route("/orders/<string:order_id>", methods=["GET"])
 def get_order(order_id: str):
+    temp_order = cache_get_temp_order(order_id)
+    if temp_order is not None:
+        return jsonify(temp_order)
+
     if not _cache_enabled():
         order = Order.query.get(order_id)
         if order is None:
@@ -146,58 +160,88 @@ def create_order():
             400,
         )
 
-    new_order = Order(customer_name=customer_name)
-
     try:
-        _hydrate_items(new_order, items)
+        parsed_items = _parse_items(items)
     except ValueError as exc:
         return jsonify({"error": str(exc)}), 400
 
-    db.session.add(new_order)
-    time.sleep(0.3)
-    db.session.commit()
+    order_id = str(uuid.uuid4())
+    payload = {
+        "order_id": order_id,
+        "customer_name": customer_name,
+        "status": data.get("status", "received"),
+        "items": parsed_items,
+    }
 
     if _cache_enabled():
-        invalidate_orders_cache(new_order.id)
+        cache_set_temp_order(order_id, payload)
 
-    return jsonify(new_order.to_dict()), 201
+    try:
+        job_response = _enqueue_job("create_order", payload)
+    except Exception:
+        current_app.logger.exception("Failed to enqueue create_order job.")
+        return jsonify({"error": "Unable to queue order."}), 503
+
+    return (
+        jsonify(
+            {
+                **job_response,
+                "order_id": order_id,
+                "message": "Order creation scheduled.",
+            }
+        ),
+        202,
+    )
 
 
 @bp.route("/orders/<string:order_id>/status", methods=["PATCH"])
 def update_order_status(order_id: str):
-    order = Order.query.filter_by(id=order_id).one_or_none()
-    if order is None:
-        return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
-
     data = request.get_json(silent=True) or {}
     new_status = data.get("status")
     if not new_status:
         return jsonify({"error": "Request must include 'status'."}), 400
 
-    order.status = new_status
-    time.sleep(0.3)
-    db.session.commit()
+    payload = {"order_id": order_id, "status": new_status}
+    try:
+        job_response = _enqueue_job("update_order_status", payload)
+    except Exception:
+        current_app.logger.exception("Failed to enqueue update_order_status job.")
+        return jsonify({"error": "Unable to queue status update."}), 503
 
-    if _cache_enabled():
-        invalidate_orders_cache(order.id)
+    _optimistic_status_update(order_id, new_status)
 
-    return jsonify(order.to_dict())
+    return (
+        jsonify(
+            {
+                **job_response,
+                "order_id": order_id,
+                "message": "Status update scheduled.",
+            }
+        ),
+        202,
+    )
 
 
 @bp.route("/orders/<string:order_id>", methods=["DELETE"])
 def delete_order(order_id: str):
-    order = Order.query.filter_by(id=order_id).one_or_none()
-    if order is None:
-        return jsonify({"error": f"Order with ID '{order_id}' not found."}), 404
+    try:
+        job_response = _enqueue_job("delete_order", {"order_id": order_id})
+    except Exception:
+        current_app.logger.exception("Failed to enqueue delete_order job.")
+        return jsonify({"error": "Unable to queue delete job."}), 503
 
-    db.session.delete(order)
-    time.sleep(0.3)
-    db.session.commit()
+    _optimistic_delete_mark(order_id)
 
-    if _cache_enabled():
-        invalidate_orders_cache(order.id)
-
-    return jsonify({"message": f"Order '{order_id}' has been deleted."}), 200
+    return (
+        jsonify(
+            {
+                **job_response,
+                "order_id": order_id,
+                "message": "Deletion scheduled.",
+            }
+        ),
+        202,
+    )
 
 
 @bp.route("/admin/reset", methods=["POST"])
@@ -278,7 +322,8 @@ def seed_database():
     return jsonify({"message": f"Seeded {count} fake orders."}), 201
 
 
-def _hydrate_items(order: Order, items: Any) -> None:
+def _parse_items(items: Any) -> List[Dict[str, Any]]:
+    parsed_items: List[Dict[str, Any]] = []
     for item in items:
         if not isinstance(item, dict):
             raise ValueError("Each item must be an object with 'name' and 'quantity'.")
@@ -297,5 +342,42 @@ def _hydrate_items(order: Order, items: Any) -> None:
         if quantity <= 0:
             raise ValueError("Quantity must be greater than zero.")
 
-        order_item = OrderItem(item_name=name, quantity=quantity, order=order)
-        db.session.add(order_item)
+        parsed_items.append({"name": name, "quantity": quantity})
+
+    return parsed_items
+
+
+def _optimistic_status_update(order_id: str, new_status: str) -> None:
+    """Update cached views to reflect a pending status change."""
+    if not _cache_enabled():
+        return
+    temp = cache_get_temp_order(order_id)
+    if isinstance(temp, dict):
+        temp = {**temp, "status": new_status}
+        cache_set_temp_order(order_id, temp)
+
+    detail_key = ORDERS_DETAIL_KEY.format(order_id=order_id)
+    cached_detail = cache_get(detail_key)
+    if isinstance(cached_detail, dict):
+        cached_detail = {**cached_detail, "status": new_status}
+        cache_setex(detail_key, cached_detail)
+
+
+def _optimistic_delete_mark(order_id: str) -> None:
+    """Mark caches so immediate GET reflects deletion in progress."""
+    if not _cache_enabled():
+        return
+    tombstone = {"order_id": order_id, "status": "deleting", "message": "Deletion scheduled."}
+
+    temp = cache_get_temp_order(order_id)
+    if isinstance(temp, dict):
+        merged = {**temp, "status": "deleting"}
+        cache_set_temp_order(order_id, merged)
+    else:
+        cache_set_temp_order(order_id, tombstone)
+
+    detail_key = ORDERS_DETAIL_KEY.format(order_id=order_id)
+    cached_detail = cache_get(detail_key)
+    if isinstance(cached_detail, dict):
+        cached_detail = {**cached_detail, "status": "deleting"}
+        cache_setex(detail_key, cached_detail)

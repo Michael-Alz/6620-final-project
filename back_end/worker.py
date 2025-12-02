@@ -1,0 +1,146 @@
+"""
+RabbitMQ worker that performs the actual SQL writes.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import signal
+import time
+from pathlib import Path
+from typing import Any, Dict
+
+import pika
+from dotenv import load_dotenv
+from sqlalchemy.exc import SQLAlchemyError
+
+load_dotenv(dotenv_path=Path(__file__).parent / ".env")
+
+from app import create_app
+from app.cache import invalidate_orders_cache
+from app.extensions import db
+from app.message_queue import RABBITMQ_QUEUE_NAME, build_connection_parameters
+from app.models import Order, OrderItem
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("queue-worker")
+
+app = create_app()
+
+
+def _process_create(payload: Dict[str, Any]) -> None:
+    order_id = payload["order_id"]
+    with app.app_context():
+        existing = Order.query.get(order_id)
+        if existing:
+            logger.info("Order %s already exists, skipping create.", order_id)
+            return
+
+        order = Order(
+            id=order_id,
+            customer_name=payload["customer_name"],
+            status=payload.get("status", "received"),
+        )
+
+        for item in payload.get("items", []):
+            order.items.append(
+                OrderItem(
+                    item_name=item["name"],
+                    quantity=item["quantity"],
+                )
+            )
+
+        db.session.add(order)
+        time.sleep(0.3)  # simulate slow DB write
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            raise
+
+        invalidate_orders_cache(order_id)
+        logger.info("Created order %s.", order_id)
+
+
+def _process_update_status(payload: Dict[str, Any]) -> None:
+    order_id = payload["order_id"]
+    with app.app_context():
+        order = Order.query.get(order_id)
+        if not order:
+            logger.warning("Skipping status update; order %s not found.", order_id)
+            return
+        order.status = payload["status"]
+        time.sleep(0.3)  # simulate slow DB write
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            raise
+        invalidate_orders_cache(order_id)
+        logger.info("Updated status for %s.", order_id)
+
+
+def _process_delete(payload: Dict[str, Any]) -> None:
+    order_id = payload["order_id"]
+    with app.app_context():
+        order = Order.query.get(order_id)
+        if not order:
+            logger.info("Order %s already gone, nothing to delete.", order_id)
+            return
+        time.sleep(0.3)  # simulate slow DB write
+        db.session.delete(order)
+        try:
+            db.session.commit()
+        except SQLAlchemyError:
+            db.session.rollback()
+            raise
+        invalidate_orders_cache(order_id)
+        logger.info("Deleted order %s.", order_id)
+
+
+PROCESSORS = {
+    "create_order": _process_create,
+    "update_order_status": _process_update_status,
+    "delete_order": _process_delete,
+}
+
+
+def _handle_message(channel, method, properties, body: bytes) -> None:
+    try:
+        job = json.loads(body)
+        job_type = job["type"]
+        payload = job["payload"]
+        processor = PROCESSORS.get(job_type)
+        if not processor:
+            logger.error("Unknown job type %s. Dropping message.", job_type)
+        else:
+            processor(payload)
+    except Exception:
+        logger.exception("Failed to process job payload: %s", body)
+    finally:
+        channel.basic_ack(delivery_tag=method.delivery_tag)
+
+
+def run_worker() -> None:
+    params = build_connection_parameters()
+    connection = pika.BlockingConnection(params)
+    channel = connection.channel()
+    channel.queue_declare(queue=RABBITMQ_QUEUE_NAME, durable=True)
+    channel.basic_qos(prefetch_count=1)
+    channel.basic_consume(queue=RABBITMQ_QUEUE_NAME, on_message_callback=_handle_message)
+    logger.info("Worker listening on queue '%s'.", RABBITMQ_QUEUE_NAME)
+    channel.start_consuming()
+
+
+def _graceful_shutdown(signum, frame):
+    logger.info("Received signal %s, exiting worker.", signum)
+    raise SystemExit(0)
+
+
+signal.signal(signal.SIGTERM, _graceful_shutdown)
+signal.signal(signal.SIGINT, _graceful_shutdown)
+
+
+if __name__ == "__main__":
+    run_worker()

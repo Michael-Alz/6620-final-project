@@ -1,179 +1,78 @@
-# Orders Service Backend
+# Orders Service Backend (Redis + RabbitMQ)
 
-Flask + SQLAlchemy API for managing customer orders with Redis-backed caching.
+Flask + SQLAlchemy API with Redis caching and asynchronous writes via RabbitMQ. Reads stay fast with cache; writes are queued and applied by a background worker to avoid DB spikes while keeping read-your-own-writes consistency.
 
 ## Prerequisites
-
--   Python 3.11+
--   Redis (Docker: `docker run -d --name redis -p 6379:6379 redis:7`)
+- Python 3.11+
+- Redis (e.g. `docker run -d --name redis -p 6379:6379 redis:7`)
+- RabbitMQ / Amazon MQ (AMQP) reachable with the credentials in `.env` (local docker-compose provided)
+- MySQL/RDS (optional; defaults to SQLite)
 
 ## Setup
-
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-# ensure .env exists with the variables below
+cp .env.example .env  # fill in DB, Redis, RabbitMQ, admin secrets
 ```
 
-`.env` variables (sample in `.env`):
+Key `.env` variables:
+- `DATABASE_URL` or `DB_USER/DB_PASS/DB_HOST/DB_NAME`
+- `REDIS_URL` (default `redis://localhost:6379/0`)
+- `ORDERS_CACHE_TTL` (default 30), `TEMP_ORDER_CACHE_TTL` (default 60)
+- `ADMIN_PASSWORD`
+- `RABBITMQ_HOST`, `RABBITMQ_PORT`, `RABBITMQ_USER`, `RABBITMQ_PASSWORD`, `RABBITMQ_QUEUE_NAME`, `MQ_USE_SSL`
 
--   `DATABASE_URL` (default `sqlite:///database.db`)
--   `DB_USER`, `DB_PASS`, `DB_HOST`, `DB_NAME` (optional; overrides `DATABASE_URL` to connect to AWS RDS/MySQL via PyMySQL)
--   `REDIS_URL` (default `redis://localhost:6379/0`)
--   `ORDERS_CACHE_TTL` cache TTL seconds (default 30)
--   `CACHE_DISABLED=true` disables Redis operations (rollback toggle)
--   `ADMIN_PASSWORD` shared secret required for `/admin/reset` and `/admin/seed`
+### Using AWS ElastiCache (Redis) + Amazon MQ
+- Point `REDIS_URL` to your ElastiCache endpoint, e.g. `REDIS_URL=rediss://<primary-endpoint>:6379/0` (use `rediss` for TLS).
+- Amazon MQ (AMQP):  
+  - `RABBITMQ_HOST=<amazon-mq-broker-endpoint>`  
+  - `RABBITMQ_PORT=5671` for TLS/AMQPS (use 5672 if non-TLS)  
+  - `RABBITMQ_USER` / `RABBITMQ_PASSWORD` = your MQ user credentials  
+  - `MQ_USE_SSL=True` when using TLS (recommended)  
+  - `RABBITMQ_QUEUE_NAME=order_write_jobs` (keep default unless you renamed it)
+- When pointing to cloud Redis/MQ, do **not** start the local `docker compose up redis rabbitmq`.
 
-## Run
-
+## Running (recommended)
+From `back_end/`:
 ```bash
-# start Redis first so the app connects successfully
-docker start redis 2>/dev/null || docker run -d --name redis -p 6379:6379 redis:7
-
-python run.py
+# ensure Redis and RabbitMQ are up first
+docker compose up -d redis rabbitmq  # from repo root, optional helper
+./start_services.sh
 ```
+- API: gunicorn `--workers 3 --threads 4 --bind 0.0.0.0:8080` (override with `API_WORKERS`, `API_THREADS`)
+- Worker count default: `WORKER_COUNT=2`
+- PID/log files live next to the scripts (`server.pid`, `worker_*.pid`, `server.log`, `worker_*.log`)
 
-Endpoints exposed at `http://localhost:8080`.
-
-## Quick Start on EC2 (Redis via Docker, app via `nohup`)
-
+Stop everything:
 ```bash
-# 1) Copy repo to EC2 and fill back_end/.env with your RDS creds.
-
-# 2) Start Redis in Docker (from repo root)
-sudo docker compose up -d redis
-
-# 3) Run the Flask app outside Docker
-cd back_end
-source .venv/bin/activate  # or python3 -m venv .venv && source .venv/bin/activate
-# Option A: dev server
-nohup python3 run.py > server.log 2>&1 &
-# Option B: Gunicorn (recommended for load)
-gunicorn --workers 3 --threads 4 --bind 0.0.0.0:8080 run:app --daemon --log-file server.log
-
-# 4) Confirm status
-sudo docker compose ps
-curl http://localhost:8080/orders
-tail -f server.log
-
-# Stop services
-sudo docker compose down
-# Stop whichever server you started:
-pkill -f "python3 run.py"                  # dev server
-pkill -f "gunicorn --workers 3 --threads"  # gunicorn daemon
-pkill -f gunicorn
-
-ps aux | grep python
-ps aux | grep gunicorn
-sudo lsof -i :8080
+./stop_services.sh
 ```
 
-````
+Manual run (if you prefer):
+```bash
+# start Redis and RabbitMQ separately (e.g., docker or cloud broker)
+python run.py                  # API (dev server)
+python worker.py               # queue consumer
+```
 
-Notes:
-
--   `REDIS_URL` should remain `redis://localhost:6379/0` so the app talks to the Docker-hosted Redis.
--   Stop Redis with `sudo docker compose down` (add `-v` if you want to drop the Redis volume).
+## Write + Read Flow (async + cache)
+- `POST /orders`: validate -> write full payload to Redis `temp_order:{id}` (60s TTL) -> enqueue job to RabbitMQ -> return 202 + `order_id`. No direct DB write.
+- Worker (`worker.py`): consumes queue; performs SQL INSERT/UPDATE/DELETE with simulated 0.3s lag; invalidates Redis list/detail caches and lets the temp entry expire naturally to preserve the read-your-own-writes window.
+- `GET /orders/<id>`: check `temp_order:{id}` first (read-your-own-writes); else cached detail `orders:detail:{id}`; else DB.
+- `PATCH /orders/<id>/status` and `DELETE /orders/<id>`: enqueue jobs; return 202.
+- `GET /orders`: cache key `orders:list:{version}` with version bumped on writes.
 
 ## Admin Endpoints
+- `POST /admin/reset` — wipes all orders/items (requires `ADMIN_PASSWORD`)
+- `POST /admin/seed` — seeds fake orders (`{ "count": 100 }` + admin password)
 
--   `POST /admin/reset` — wipes all orders/items after verifying `ADMIN_PASSWORD` via `X-Admin-Password` header or a `password` field in the JSON body.
--   `POST /admin/seed` — seeds fake orders; provide `{ "count": 100 }` plus the admin password to backfill demo data quickly.
-
-## Cache Versioning
-
-`GET /orders` caches the full list under `orders:list:{version}`.
-Writes bump `orders:list:version` and drop affected `orders:detail:{order_id}` keys.
-
-## Utility Scripts
-
-Seed demo data:
-
-```bash
-python scripts/seed_orders.py --count 1000
-````
-
-Clear all orders/items:
-
-```bash
-python scripts/clear_db.py
-```
-
-Reset Redis cache (flush current DB defined by `REDIS_URL`):
-
-```bash
-python scripts/reset_redis.py
-```
-
-Or via Docker (flush cache and rebuild a clean instance):
-
-```bash
-sudo docker compose down -v redis
-sudo docker compose up -d redis
-```
+## Troubleshooting
+- Verify brokers: `redis-cli PING`, `rabbitmqctl list_queues` (or AWS MQ console)
+- If cache is disabled: set `CACHE_DISABLED=true`
+- Adjust temp cache TTL: `TEMP_ORDER_CACHE_TTL`
 
 ## Load Testing
-
-Locust file: `tests/locustfile.py`.
-
+Locust file: `tests/locustfile.py`
 ```bash
 locust -f tests/locustfile.py --host=http://localhost:8080
-# optional: observe cache activity
-# docker exec -it redis redis-cli INFO stats
-```
-
-Two user types simulate 90% reads, 10% writes.
-
-## Smoke Test Flow
-
-```bash
-curl -s -X POST http://localhost:8080/orders \
-  -H "Content-Type: application/json" \
-  -d '{"customer_name":"Alice","items":[{"name":"Pen","quantity":2}]}'
-
-curl -s http://localhost:8080/orders
-```
-
-## Checking Redis Cache
-
-Quick ways to verify the cache is functioning.
-
-Keys created by the service:
-
-```bash
-# List/list versioned keys
-docker exec -it redis redis-cli -n 0 keys 'orders:*'
-
-# Inspect cached list + detail payloads
-docker exec -it redis redis-cli -n 0 get 'orders:list:version'          # current version number
-docker exec -it redis redis-cli -n 0 ttl 'orders:list:0'                # TTL for version 0 payload
-docker exec -it redis redis-cli -n 0 get 'orders:list:0'                # cached list JSON
-docker exec -it redis redis-cli -n 0 keys 'orders:detail:*'             # per-order detail keys
-```
-
-Hit/miss statistics:
-
-```bash
-# Reset the statistics:
-sudo docker compose exec redis redis-cli CONFIG RESETSTAT
-
-# Check hits and misses:
-sudo docker compose exec redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses'
-
-# Percentages:
-sudo docker compose exec redis sh -c \
-"redis-cli info stats | awk -F: '/keyspace_hits|keyspace_misses/{gsub(/\r/,\"\",\$2); a[\$1]=\$2} END{t=a[\"keyspace_hits\"]+a[\"keyspace_misses\"]; if(t==0) print 0; else printf(\"%.2f%%\\n\", a[\"keyspace_hits\"]*100/t)}'"
-
-
-# Fetch the raw counters if you prefer manual inspection
-sudo docker compose exec redis redis-cli info stats | egrep 'keyspace_hits|keyspace_misses|total_commands_processed'
-
-# Trigger a few reads (first miss, subsequent hits)
-for i in {1..5}; do curl -s 'http://localhost:8080/orders' >/dev/null; done
-```
-
-Live command stream (debugging):
-
-```bash
-docker exec -it redis redis-cli monitor
 ```

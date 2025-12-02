@@ -20,5 +20,6 @@ class Config:
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379/0")
     ORDERS_CACHE_TTL = int(os.getenv("ORDERS_CACHE_TTL", "30"))
+    TEMP_ORDER_CACHE_TTL = int(os.getenv("TEMP_ORDER_CACHE_TTL", "60"))
     CACHE_DISABLED = os.getenv("CACHE_DISABLED", "false").lower() == "true"
     ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD")
