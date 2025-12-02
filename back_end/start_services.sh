@@ -8,10 +8,10 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG_DIR="${ROOT_DIR}"
 SERVER_PID_FILE="${ROOT_DIR}/server.pid"
 
-# Defaults: API uses 3 workers / 4 threads; queue workers default to 2 (override via envs).
+# Defaults: API uses 3 workers / 4 threads; queue workers default to 4 (override via envs).
 API_WORKERS="${API_WORKERS:-3}"
 API_THREADS="${API_THREADS:-4}"
-WORKER_COUNT="${WORKER_COUNT:-2}"
+WORKER_COUNT="${WORKER_COUNT:-4}"
 
 ensure_not_running() {
   local pid_file="$1"
