@@ -3,7 +3,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from locust import HttpUser, between, task
+from locust import HttpUser, task, between
 
 
 ORDER_IDS: list[str] = []
