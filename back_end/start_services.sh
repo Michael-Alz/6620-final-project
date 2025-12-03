@@ -12,6 +12,9 @@ SERVER_PID_FILE="${ROOT_DIR}/server.pid"
 API_WORKERS="${API_WORKERS:-3}"
 API_THREADS="${API_THREADS:-4}"
 WORKER_COUNT="${WORKER_COUNT:-4}"
+ACCESS_LOG_FILE="${ACCESS_LOG_FILE:-${LOG_DIR}/server-access.log}"
+ACCESS_LOG_FORMAT_DEFAULT='%(t)s %(m)s %(U)s%(q)s %(s)s %(b)s "%(f)s" "%(a)s"'
+ACCESS_LOG_FORMAT="${ACCESS_LOG_FORMAT:-$ACCESS_LOG_FORMAT_DEFAULT}"
 
 ensure_not_running() {
   local pid_file="$1"
@@ -44,7 +47,7 @@ start_process() {
 cd "$ROOT_DIR"
 
 # Start API server via gunicorn (multi-threaded).
-SERVER_CMD="cd \"$ROOT_DIR\" && gunicorn --workers \"$API_WORKERS\" --threads \"$API_THREADS\" --bind 0.0.0.0:8080 run:app"
+SERVER_CMD="cd \"$ROOT_DIR\" && gunicorn --workers \"$API_WORKERS\" --threads \"$API_THREADS\" --bind 0.0.0.0:8080 --access-logfile \"$ACCESS_LOG_FILE\" --access-logformat \"$ACCESS_LOG_FORMAT\" run:app"
 start_process "$SERVER_CMD" "$SERVER_PID_FILE" "$LOG_DIR/server.log" "server"
 
 echo "Starting $WORKER_COUNT workers..."

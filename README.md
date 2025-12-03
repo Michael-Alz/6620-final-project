@@ -40,8 +40,10 @@ docker compose up -d redis rabbitmq  # from repo root, optional helper
 ./start_services.sh
 ```
 - API: gunicorn `--workers 3 --threads 4 --bind 0.0.0.0:8080` (override with `API_WORKERS`, `API_THREADS`)
-- Worker count default: `WORKER_COUNT=2`
+- Worker count default: `WORKER_COUNT=4`
 - PID/log files live next to the scripts (`server.pid`, `worker_*.pid`, `server.log`, `worker_*.log`)
+- Access logs: `server-access.log` captures each request (override via `ACCESS_LOG_FILE`, `ACCESS_LOG_FORMAT`)
+- Startup connectivity logs show Redis/RabbitMQ/DB reachability in `server.log` (and worker logs) when the app boots
 
 Stop everything:
 ```bash
